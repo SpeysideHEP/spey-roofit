@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spey-roofit"
+dynamic = ["version"]
+description = "RooFit plug-in for Spey"
+readme = {file = "README.md", content-type = "text/markdown"}
+license = {text = "MIT"}
+authors = [
+    {name = "Jack Y. Araz", email = "j.araz@ucl.ac.uk"},
+]
+requires-python = ">=3.10, <3.15"
+dependencies = ["spey>=0.2.6", "numpy>=1.24", "scipy>=1.10"]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+[project.urls]
+Homepage = "https://github.com/SpeysideHEP/spey-roofit"
+Repository = "https://github.com/SpeysideHEP/spey-roofit"
+Documentation = "https://spey-roofit.readthedocs.io"
+"Bug Tracker" = "https://github.com/SpeysideHEP/spey-roofit/issues"
+Download = "https://github.com/SpeysideHEP/spey-roofit/releases"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.1.2",
+    "pytest-cov>=3.0.0",
+    "twine>=3.7.1",
+    "wheel>=0.37.1",
+]
+validation = [
+    "pyhf>=0.7.6",
+    "matplotlib>=3.7",
+]
+
+[project.entry-points."spey.backend.plugins"]
+"root.roofit" = "spey_roofit:RooFitInterface"
+
+[tool.setuptools.dynamic]
+version = {attr = "spey_roofit._version.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "atlas: tests that need the ATLAS ROOT files in atlas-exot-2018-06/",
+    "slow: tests that run a full hypothesis test",
+]
+
+[tool.black]
+line-length = 90
+target-version = ["py310"]
