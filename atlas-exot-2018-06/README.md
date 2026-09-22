@@ -59,7 +59,7 @@ a single number.
 
 ## What uses it
 
-* `notebooks/validation.ipynb` — sections 4 and 5: reproducing the published
+* `validation.ipynb` — sections 4 and 5: reproducing the published
   yields of all 78 regions, recovering the signal strength stored in the
   post-fit workspace, cross-checking the expected yields against `pyhf`, and
   injecting a signal into the background-only workspace.
