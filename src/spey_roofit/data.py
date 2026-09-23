@@ -41,7 +41,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any
+from collections.abc import Callable, Sequence
 
 import numpy as np
 from scipy.special import gammaln
@@ -88,9 +89,9 @@ class ChannelInfo:
 
     name: str
     pdf: Any
-    observables: List[Any]
+    observables: list[Any]
     observable_set: Any
-    shape: Tuple[int, ...]
+    shape: tuple[int, ...]
 
     @property
     def nbins(self) -> int:
@@ -138,7 +139,7 @@ class _NLLRecord:
     offset: float
     global_observables: np.ndarray
     residual: float = 0.0
-    keep: List[Any] = field(default_factory=list)
+    keep: list[Any] = field(default_factory=list)
 
 
 class WorkspaceData:
@@ -212,6 +213,7 @@ class WorkspaceData:
         "_nominal_parameters",
         "_nominal_global_observables",
         "_current_global_observables",
+        "_current_parameters",
         "_nll_cache",
         "_row_template",
         "_weight_variable",
@@ -227,8 +229,8 @@ class WorkspaceData:
         self,
         workspace: Any,
         model_config_name: str = "ModelConfig",
-        data_name: Optional[str] = None,
-        poi_name: Optional[str] = None,
+        data_name: str | None = None,
+        poi_name: str | None = None,
         strict_cache_flush: bool = True,
         calibration_tolerance: float = 1e-6,
         max_cached_likelihoods: int = 16,
@@ -238,7 +240,7 @@ class WorkspaceData:
         self._strict_cache_flush = bool(strict_cache_flush)
         self._calibration_tolerance = float(calibration_tolerance)
         self._max_cached_likelihoods = max(1, int(max_cached_likelihoods))
-        self._nll_cache: Dict[bytes, _NLLRecord] = {}
+        self._nll_cache: dict[bytes, _NLLRecord] = {}
         self._dataset_counter: int = 0
 
         self.workspace = workspace
@@ -257,8 +259,8 @@ class WorkspaceData:
             self.pdf.indexCat() if self.pdf.InheritsFrom("RooSimultaneous") else None
         )
 
-        self.channels: List[ChannelInfo] = self._resolve_channels()
-        self.constraints: List[ConstraintInfo] = self._resolve_constraints()
+        self.channels: list[ChannelInfo] = self._resolve_channels()
+        self.constraints: list[ConstraintInfo] = self._resolve_constraints()
 
         self.poi = self._resolve_poi(poi_name)
         self.nuisance_parameters = self._resolve_nuisance_parameters()
@@ -277,6 +279,7 @@ class WorkspaceData:
             [gob.getVal() for gob in self._global_observable_objects], dtype=np.float64
         )
         self._current_global_observables = self._nominal_global_observables.copy()
+        self._current_parameters = self._nominal_parameters.copy()
 
         # bookkeeping objects used to build datasets from a flat count vector
         self._weight_variable = ROOT.RooRealVar("_spey_weight", "event weight", 1.0)
@@ -298,7 +301,7 @@ class WorkspaceData:
     # Resolution of the workspace structure                               #
     # ------------------------------------------------------------------ #
 
-    def _resolve_data(self, data_name: Optional[str]) -> Any:
+    def _resolve_data(self, data_name: str | None) -> Any:
         """
         Locate the observed dataset inside the workspace.
 
@@ -339,7 +342,7 @@ class WorkspaceData:
         )
         return datasets[0]
 
-    def _resolve_channels(self) -> List[ChannelInfo]:
+    def _resolve_channels(self) -> list[ChannelInfo]:
         """
         Split the model into channels and resolve the binning of each of them.
 
@@ -352,7 +355,7 @@ class WorkspaceData:
         """
         return resolve_channels(self.model_config, self.pdf, self.index_category)
 
-    def _resolve_constraints(self) -> List[ConstraintInfo]:
+    def _resolve_constraints(self) -> list[ConstraintInfo]:
         r"""
         Identify every constraint term of the model.
 
@@ -376,7 +379,7 @@ class WorkspaceData:
             return []
         global_observables = {gob.GetName(): gob for gob in declared}
 
-        found: Dict[str, ConstraintInfo] = {}
+        found: dict[str, ConstraintInfo] = {}
         for component in self.pdf.getComponents():
             if not component.InheritsFrom("RooAbsPdf"):
                 continue
@@ -417,8 +420,8 @@ class WorkspaceData:
 
     @staticmethod
     def _resolve_expectation(
-        constraint: Any, global_observable: Any, servers: List[Any]
-    ) -> Optional[Any]:
+        constraint: Any, global_observable: Any, servers: list[Any]
+    ) -> Any | None:
         r"""
         Find the expression a constraint compares its auxiliary measurement to.
 
@@ -454,7 +457,7 @@ class WorkspaceData:
         floating = [srv for srv in candidates if not srv.isConstant()]
         return floating[0] if floating else candidates[0]
 
-    def _resolve_constraint_terms(self) -> List[Any]:
+    def _resolve_constraint_terms(self) -> list[Any]:
         r"""
         Collect every constraint factor of the model and its normalisation set.
 
@@ -478,7 +481,7 @@ class WorkspaceData:
         declared = self.model_config.GetGlobalObservables()
         global_names = {gob.GetName() for gob in declared} if declared else set()
 
-        terms: Dict[str, Any] = {
+        terms: dict[str, Any] = {
             constraint.pdf.GetName(): (constraint.pdf, constraint.norm_set)
             for constraint in self.constraints
         }
@@ -517,7 +520,7 @@ class WorkspaceData:
                 visit(factor, channel.observable_set)
         return list(terms.values())
 
-    def _resolve_poi(self, poi_name: Optional[str]) -> Any:
+    def _resolve_poi(self, poi_name: str | None) -> Any:
         """
         Resolve the parameter of interest.
 
@@ -558,7 +561,7 @@ class WorkspaceData:
         pois[0].setConstant(False)
         return pois[0]
 
-    def _resolve_nuisance_parameters(self) -> List[Any]:
+    def _resolve_nuisance_parameters(self) -> list[Any]:
         """
         Collect the floating nuisance parameters of the model.
 
@@ -597,7 +600,7 @@ class WorkspaceData:
     # ------------------------------------------------------------------ #
 
     @property
-    def parameter_names(self) -> List[str]:
+    def parameter_names(self) -> list[str]:
         r"""
         Names of the model parameters in the order ``spey`` expects them.
 
@@ -608,7 +611,7 @@ class WorkspaceData:
         return [par.GetName() for par in self._parameter_objects]
 
     @property
-    def global_observable_names(self) -> List[str]:
+    def global_observable_names(self) -> list[str]:
         """
         Names of the global observables in auxiliary-data order.
 
@@ -619,7 +622,7 @@ class WorkspaceData:
         return [gob.GetName() for gob in self._global_observable_objects]
 
     @property
-    def bin_map(self) -> Dict[str, int]:
+    def bin_map(self) -> dict[str, int]:
         """
         Number of bins of each channel.
 
@@ -630,7 +633,7 @@ class WorkspaceData:
         return {channel.name: channel.nbins for channel in self.channels}
 
     @property
-    def channel_names(self) -> List[str]:
+    def channel_names(self) -> list[str]:
         """
         Names of the channels in data-vector order.
 
@@ -707,7 +710,7 @@ class WorkspaceData:
         """
         return np.concatenate([self._observed_counts, self._nominal_global_observables])
 
-    def split(self, data: Sequence[float]) -> Tuple[np.ndarray, np.ndarray]:
+    def split(self, data: Sequence[float]) -> tuple[np.ndarray, np.ndarray]:
         """
         Split a flat data vector into its main and auxiliary parts.
 
@@ -756,8 +759,14 @@ class WorkspaceData:
                 f"Expected {len(self._parameter_objects)} parameters "
                 f"but got {values.size}."
             )
-        for par, value in zip(self._parameter_objects, values):
-            value = float(value)
+        # Writing a variable that already holds the value would still mark
+        # everything downstream of it dirty. The optimiser moves one parameter
+        # at a time when it estimates a gradient, so skipping the untouched
+        # ones is what keeps a model with many nuisance parameters usable.
+        changed = np.flatnonzero(values != self._current_parameters)
+        for index in changed:
+            par = self._parameter_objects[index]
+            value = float(values[index])
             # RooFit clamps a variable to its range without raising, which would
             # silently return the likelihood of a different parameter point.
             if value < par.getMin() or value > par.getMax():
@@ -768,9 +777,11 @@ class WorkspaceData:
                 )
                 par.setRange(min(par.getMin(), value), max(par.getMax(), value))
             par.setVal(value)
+        self._current_parameters = values.copy()
 
     def reset_parameters(self) -> None:
         """Restore the parameter values the workspace was loaded with."""
+        self.invalidate_parameter_cache()
         self.set_parameters(self._nominal_parameters)
         self.set_global_observables(self._nominal_global_observables)
 
@@ -898,7 +909,7 @@ class WorkspaceData:
     # Datasets                                                            #
     # ------------------------------------------------------------------ #
 
-    def make_dataset(self, counts: Sequence[float], name: Optional[str] = None) -> Any:
+    def make_dataset(self, counts: Sequence[float], name: str | None = None) -> Any:
         """
         Build a weighted ``RooDataSet`` from a vector of bin counts.
 
@@ -990,7 +1001,7 @@ class WorkspaceData:
         constraint = float(
             np.sum(
                 [
-                    np.log(term.getVal(norm_set))
+                    np.log(max(term.getVal(norm_set), 1e-300))
                     for term, norm_set in self._constraint_terms
                 ]
             )
@@ -1038,7 +1049,7 @@ class WorkspaceData:
         offset = float(offsets[0])
         scale = max(abs(offset), 1.0)
         residual = float(abs(offsets[0] - offsets[1]) / scale)
-        if residual > self._calibration_tolerance:
+        if not np.isfinite(residual) or residual > self._calibration_tolerance:
             log.warning(
                 "The offset between the RooFit and the spey log-likelihood "
                 "normalisation is not constant (relative drift %.3e). Absolute "
@@ -1099,7 +1110,7 @@ class WorkspaceData:
         return record
 
     def logpdf_func(
-        self, data: Optional[Sequence[float]] = None
+        self, data: Sequence[float] | None = None
     ) -> Callable[[np.ndarray], float]:
         r"""
         Build the callable ``spey`` uses to evaluate the log-likelihood.
@@ -1149,6 +1160,7 @@ class WorkspaceData:
         self._current_global_observables = np.full(
             len(self._global_observable_objects), np.nan
         )
+        self.invalidate_parameter_cache()
 
     def clear_cache(self) -> None:
         """Drop every cached negative log-likelihood and dataset."""
@@ -1156,6 +1168,18 @@ class WorkspaceData:
         self._current_global_observables = np.full(
             len(self._global_observable_objects), np.nan
         )
+        self.invalidate_parameter_cache()
+
+    def invalidate_parameter_cache(self) -> None:
+        """
+        Forget which parameter values the ``RooFit`` variables were last given.
+
+        :meth:`set_parameters` only writes the entries that changed since the
+        previous call. Anything that moves a variable behind its back — a range
+        change, a fit driven by ``RooFit`` itself — has to invalidate that
+        bookkeeping first.
+        """
+        self._current_parameters = np.full(len(self._parameter_objects), np.nan)
 
 
 # ---------------------------------------------------------------------------
@@ -1164,8 +1188,8 @@ class WorkspaceData:
 
 
 def resolve_channels(
-    model_config: Any, pdf: Any, index_category: Optional[Any] = None
-) -> List[ChannelInfo]:
+    model_config: Any, pdf: Any, index_category: Any | None = None
+) -> list[ChannelInfo]:
     """
     Split a ``RooFit`` model into channels and resolve the binning of each one.
 
@@ -1204,7 +1228,7 @@ def resolve_channels(
         )
         pdf_map = [(name, pdf.getPdf(name)) for name, _ in states]
 
-    channels: List[ChannelInfo] = []
+    channels: list[ChannelInfo] = []
     for name, channel_pdf in pdf_map:
         observables = [
             obs
@@ -1233,7 +1257,7 @@ def resolve_channels(
 
 
 def read_counts(
-    dataset: Any, channels: List[ChannelInfo], index_category: Optional[Any] = None
+    dataset: Any, channels: list[ChannelInfo], index_category: Any | None = None
 ) -> np.ndarray:
     """
     Read the bin counts of a ``RooFit`` dataset into a flat vector.
@@ -1250,7 +1274,7 @@ def read_counts(
         ``np.ndarray``:
         Bin counts, channels concatenated in the order they are given.
     """
-    offsets: Dict[str, int] = {}
+    offsets: dict[str, int] = {}
     cursor = 0
     for channel in channels:
         offsets[channel.name] = cursor

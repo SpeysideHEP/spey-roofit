@@ -58,14 +58,15 @@ class RootManager:
         >>> manager.silence("FATAL")
     """
 
-    __slots__ = ["_root", "_verbosity", "_keep_alive"]
+    __slots__ = ["_root", "_verbosity", "_keep_alive", "_combine"]
 
     _LEVELS = ("DEBUG", "INFO", "PROGRESS", "WARNING", "ERROR", "FATAL")
 
     def __init__(self, verbosity: str = "ERROR"):
         self._root = None
         self._verbosity = verbosity
-        self._keep_alive: List[Any] = []
+        self._keep_alive: list[Any] = []
+        self._combine: Any = None
 
     @property
     def ROOT(self):  # pylint: disable=invalid-name
@@ -127,6 +128,34 @@ class RootManager:
             Value reported by ``TROOT::GetVersion``.
         """
         return str(self.ROOT.gROOT.GetVersion())
+
+    @property
+    def has_combine(self) -> bool:
+        """
+        Whether ``CMS Combine`` is available in this environment.
+
+        The check loads ``libHiggsAnalysisCombinedLimit``, which is what makes
+        a workspace written by ``text2workspace.py`` readable: it uses classes
+        such as ``ProcessNormalization`` and ``FastVerticalInterpHistPdf2``
+        that ship with ``combine`` rather than with ``ROOT``.
+
+        Returns:
+            ``bool``:
+            ``True`` if the library could be loaded.
+        """
+        if self._combine is None:
+            try:
+                status = self.ROOT.gSystem.Load("libHiggsAnalysisCombinedLimit")
+            except Exception:  # pragma: no cover - environment dependent
+                status = -1
+            self._combine = status >= 0
+            if not self._combine:
+                log.debug(
+                    "libHiggsAnalysisCombinedLimit could not be loaded; install "
+                    "CMS Combine with `conda install -c conda-forge cms-combine` "
+                    "to read the workspaces it writes."
+                )
+        return bool(self._combine)
 
     def silence(self, level: str = "ERROR") -> None:
         """

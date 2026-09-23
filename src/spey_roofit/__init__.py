@@ -24,7 +24,8 @@ without touching ``RooFit`` directly.
     ... )
     >>> model.exclusion_confidence_level()
 
-The same machinery reads an HS3 document through the ``root.hs3`` backend:
+The same machinery reads an HS3 document through the ``root.hs3`` backend, and
+a ``CMS Combine`` datacard through the ``root.cms-combine`` one:
 
 .. code-block:: python3
     :linenos:
@@ -35,29 +36,51 @@ The same machinery reads an HS3 document through the ``root.hs3`` backend:
     ...     signal_yields={"model_SR": [3.0, 5.0, 2.0]},
     ...     analysis="atlas-topq-2018-24",
     ... )
+
+    >>> wrapper = spey.get_backend("root.cms-combine")
+    >>> model = wrapper(
+    ...     datacard="chi_datacard.txt",
+    ...     analysis="cms-exo-24-011",
+    ... )
 """
 
 from ._version import __version__
 from .base import RooFitBackendBase
+from .combine import (
+    DatacardInterpreter,
+    combine_options,
+    compile_datacard,
+    parse_datacard,
+    patch_datacard,
+)
+from .combine_interface import CombineInterface
 from .data import ChannelInfo, ConstraintInfo, WorkspaceData
 from .helper_functions import WorkspaceInterpreter, load_workspace
 from .hs3 import compile_workspace, load_document, repair_document
 from .hs3_interface import HS3Interface
 from .interface import RooFitInterface
 from .manager import manager
+from .physics_models import SwappedTwoHypothesis
 
 __all__ = [
     "RooFitInterface",
     "HS3Interface",
+    "CombineInterface",
     "RooFitBackendBase",
     "WorkspaceInterpreter",
+    "DatacardInterpreter",
     "WorkspaceData",
     "ChannelInfo",
     "ConstraintInfo",
     "load_workspace",
     "compile_workspace",
+    "compile_datacard",
+    "combine_options",
+    "parse_datacard",
+    "patch_datacard",
     "load_document",
     "repair_document",
+    "SwappedTwoHypothesis",
     "manager",
     "__version__",
 ]
