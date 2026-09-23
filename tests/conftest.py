@@ -14,6 +14,19 @@ pytest.importorskip("ROOT", reason="spey-roofit requires PyROOT")
 
 REPOSITORY = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ATLAS_DIRECTORY = os.path.join(REPOSITORY, "atlas-exot-2018-06")
+CMS_DIRECTORY = os.path.join(REPOSITORY, "cms-exo-24-011")
+
+#: Datacards of the CMS dijet angular record used by the test suite, relative
+#: to the directory the download script unpacks into.
+CMS_DATACARDS = {
+    "add12000": os.path.join(
+        "datacards", "input", "chi_datacard13TeV3_ADD12000_run2.txt"
+    ),
+    "add9000": os.path.join("datacards", "ADD", "chi_datacard13TeV3_ADD9000_run2.txt"),
+    "add20000": os.path.join("datacards", "ADD", "chi_datacard13TeV3_ADD20000_run2.txt"),
+}
+
+KAPPA = [1.10, 1.20, 1.05]
 
 BACKGROUND = [50.0, 60.0, 30.0]
 SIGNAL = [12.0, 11.0, 5.0]
@@ -26,6 +39,7 @@ def pytest_configure(config):
     """Register the custom markers used by the suite."""
     config.addinivalue_line("markers", "atlas: tests that need the ATLAS ROOT files")
     config.addinivalue_line("markers", "topq: tests that need the ATLAS HS3 files")
+    config.addinivalue_line("markers", "cms: tests that need the CMS datacards")
     config.addinivalue_line("markers", "slow: tests that run a full hypothesis test")
 
 
@@ -346,3 +360,188 @@ def roofit_to_pyhf_name(name: str) -> str:
     if match:
         return f"staterror_{match.group(1)}[{match.group(2)}]"
     return name
+
+
+# --------------------------------------------------------------------------- #
+# CMS Combine                                                                  #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(scope="session")
+def poisson_datacard(toy_yields):
+    """
+    Counting datacard equivalent to ``default.poisson``.
+
+    Returns:
+        ``str``:
+        The datacard.
+    """
+    from combine_models import poisson_datacard as builder
+
+    return builder(toy_yields["background"], toy_yields["signal"], toy_yields["data"])
+
+
+@pytest.fixture(scope="session")
+def log_normal_datacard(toy_yields):
+    """
+    Counting datacard with one symmetric ``lnN`` per channel.
+
+    Returns:
+        ``str``:
+        The datacard.
+    """
+    from combine_models import log_normal_datacard as builder
+
+    return builder(
+        toy_yields["background"], toy_yields["signal"], toy_yields["data"], KAPPA
+    )
+
+
+@pytest.fixture(scope="session")
+def log_normal_kappas():
+    r"""
+    The factors used by :func:`log_normal_datacard`.
+
+    Returns:
+        ``List[float]``:
+        One :math:`\kappa` per channel.
+    """
+    return list(KAPPA)
+
+
+@pytest.fixture(scope="session")
+def uncorrelated_datacard(tmp_path_factory, toy_yields):
+    """
+    Shape datacard equivalent to ``default.uncorrelated_background``.
+
+    Returns:
+        ``str``:
+        The datacard.
+    """
+    from combine_models import uncorrelated_background_datacard
+
+    directory = str(tmp_path_factory.mktemp("combine_uncorrelated"))
+    return uncorrelated_background_datacard(
+        directory,
+        toy_yields["background"],
+        toy_yields["signal"],
+        toy_yields["data"],
+        toy_yields["uncertainty"],
+    )
+
+
+@pytest.fixture(scope="session")
+def background_only_datacard(tmp_path_factory, toy_yields):
+    """
+    Background-only shape datacard, without any signal process.
+
+    Returns:
+        ``str``:
+        The datacard.
+    """
+    from combine_models import uncorrelated_background_datacard
+
+    directory = str(tmp_path_factory.mktemp("combine_background_only"))
+    return uncorrelated_background_datacard(
+        directory,
+        toy_yields["background"],
+        None,
+        toy_yields["data"],
+        toy_yields["uncertainty"],
+        name="bkgonly",
+    )
+
+
+SHIFTS = [[4.0, -3.0, -1.0], [-2.0, 5.0, -3.0]]
+
+
+@pytest.fixture(scope="session")
+def shape_shifts():
+    """
+    The shift vectors used by :func:`shape_datacard`.
+
+    Returns:
+        ``List[List[float]]``:
+        One vector per uncertainty, each summing to zero.
+    """
+    return [list(row) for row in SHIFTS]
+
+
+@pytest.fixture(scope="session")
+def shape_datacard(tmp_path_factory, toy_yields):
+    """
+    Shape datacard whose uncertainties preserve the total yield.
+
+    Returns:
+        ``str``:
+        The datacard.
+    """
+    from combine_models import shape_datacard as builder
+
+    directory = str(tmp_path_factory.mktemp("combine_shapes"))
+    return builder(
+        directory,
+        toy_yields["background"],
+        toy_yields["signal"],
+        toy_yields["data"],
+        SHIFTS,
+    )
+
+
+@pytest.fixture(scope="session")
+def mixed_datacard(toy_yields):
+    """
+    Counting datacard exercising the directives only ``combine`` has.
+
+    Returns:
+        ``str``:
+        The datacard.
+    """
+    from combine_models import mixed_datacard as builder
+
+    return builder(toy_yields["background"], toy_yields["signal"], toy_yields["data"])
+
+
+def cms_path(name: str = "add12000") -> str:
+    """
+    Path of one of the CMS dijet angular datacards.
+
+    Args:
+        name (``str``, default ``"add12000"``): key of :data:`CMS_DATACARDS`.
+
+    Returns:
+        ``str``:
+        Path of the requested datacard. The calling test is skipped when the
+        validation material has not been downloaded.
+    """
+    path = os.path.join(CMS_DIRECTORY, CMS_DATACARDS[name])
+    if not os.path.exists(path):
+        pytest.skip(
+            "CMS dijet angular validation material is not available; "
+            "run ./cms-exo-24-011/download.sh"
+        )
+    return path
+
+
+def random_parameters(names, seed=0, width=0.8, poi=1.0):
+    """
+    Draw a random parameter point for a compiled datacard.
+
+    Args:
+        names (``Sequence[str]``): parameter names, the parameter of interest
+          first.
+        seed (``int``, default ``0``): seed of the generator.
+        width (``float``, default ``0.8``): width of the Gaussian the nuisance
+          parameters are drawn from.
+        poi (``float``, default ``1.0``): value given to the parameter of
+          interest.
+
+    Returns:
+        ``np.ndarray``:
+        One value per parameter.
+    """
+    rng = np.random.default_rng(seed)
+    values = np.empty(len(names), dtype=float)
+    values[0] = poi
+    values[1:] = rng.normal(0.0, width, len(names) - 1)
+    return values
