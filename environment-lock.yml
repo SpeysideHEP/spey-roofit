@@ -1,6 +1,6 @@
 # Exact versions the validation results shipped with this repository were
 # produced with. Use `environment.yml` for day-to-day work and this file to
-# reproduce the numbers in `notebooks/validation.ipynb` bit for bit.
+# reproduce the numbers in the two `validation.ipynb` notebooks bit for bit.
 name: spey-roofit-lock
 channels:
   - conda-forge
@@ -11,7 +11,12 @@ dependencies:
   - scipy=1.16.3
   - pip
   - pip:
-      - spey==0.2.6
+      # spey 0.2.8-b1 is the first version whose Asimov datasets carry the
+      # profiled auxiliary measurements; the validation compares against it.
+      # Neither it nor the required spey-hs3 is on PyPI yet.
+      - spey @ git+https://github.com/SpeysideHEP/spey@multipoi-multihisto
+      - spey-hs3==0.03
+      - spey-pyhf==0.2.2
       - pyhf==0.7.6
       - iminuit==2.32.0
       - pytest==7.4.4

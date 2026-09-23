@@ -12,7 +12,7 @@ authors = [
     {name = "Jack Y. Araz", email = "j.araz@ucl.ac.uk"},
 ]
 requires-python = ">=3.10, <3.15"
-dependencies = ["spey>=0.2.6", "numpy>=1.24", "scipy>=1.10"]
+dependencies = ["spey>=0.2.6", "spey-hs3>=0.0.3", "numpy>=1.24", "scipy>=1.10"]
 classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
@@ -42,12 +42,13 @@ dev = [
     "wheel>=0.37.1",
 ]
 validation = [
-    "pyhf>=0.7.6",
+    "spey-pyhf>=0.2.0",
     "matplotlib>=3.7",
 ]
 
 [project.entry-points."spey.backend.plugins"]
 "root.roofit" = "spey_roofit:RooFitInterface"
+"root.hs3" = "spey_roofit:HS3Interface"
 
 [tool.setuptools.dynamic]
 version = {attr = "spey_roofit._version.__version__"}
@@ -59,6 +60,7 @@ where = ["src"]
 testpaths = ["tests"]
 markers = [
     "atlas: tests that need the ATLAS ROOT files in atlas-exot-2018-06/",
+    "topq: tests that need the ATLAS HS3 files in atlas-topq-2018-24/",
     "slow: tests that run a full hypothesis test",
 ]
 

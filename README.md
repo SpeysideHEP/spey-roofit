@@ -5,21 +5,25 @@
 
 <img src="https://raw.githubusercontent.com/SpeysideHEP/spey/main/docs/img/spey-plug-in.png" alt="Spey logo" style="float: right; margin-right: 20px" align="right" width=250px/>
 
-[`RooFit`](https://root.cern/manual/roofit/) plug-in for
+[`RooFit`](https://root.cern/manual/roofit/) and
+[HS3](https://hep-statistics-serialization-standard.github.io/) plug-ins for
 [`spey`](https://spey.readthedocs.io).
 
 `spey-roofit` turns any binned `RooFit` workspace into a `spey`
 `StatisticalModel`, so that exclusion limits, significances, upper limits and
 model combination are computed by `spey` exactly as they are for any other
-likelihood prescription. It works with
+likelihood prescription. It provides two backends:
 
-* `HistFactory` workspaces published on HEPData as `.root` files,
-* workspaces built by `RooJSONFactoryWSTool` from an HS3 `JSON` document,
-* workspaces assembled by hand,
+| backend | input |
+| --- | --- |
+| `root.roofit` | a `RooFit` workspace: a `HistFactory` `.root` file from HEPData, or one built in memory |
+| `root.hs3` | an HS3 `JSON` document, compiled into a `RooFit` workspace by `RooJSONFactoryWSTool` |
 
-and it ships a **workspace interpreter** so that a user can inspect the region
-structure of an analysis and inject their own signal without knowing anything
-about `RooFit`.
+Both share the same likelihood, Asimov and sampling machinery, so an analysis
+published in either format gives the same numbers. Each ships a **workspace
+interpreter** so that a user can inspect the region structure of an analysis
+and inject their own signal without knowing anything about `RooFit` — or about
+HS3.
 
 ## Installation
 
@@ -35,16 +39,18 @@ pip install -e .
 `environment-lock.yml` pins the exact versions the shipped validation results
 were produced with.
 
-The ATLAS material used by the examples below, by
-`notebooks/validation.ipynb` and by the `atlas`-marked tests is not committed —
-it belongs to the HEPData record. Fetch it with:
+The ATLAS material used by the examples below, by the validation notebooks
+and by the `atlas`- and `topq`-marked tests is not committed — it belongs to
+the HEPData records. Fetch it with:
 
 ```bash
-./atlas-exot-2018-06/download.sh
+./atlas-exot-2018-06/download.sh    # monojet, RooFit workspaces
+./atlas-topq-2018-24/download.sh    # ttbar+gamma, HS3 documents and pyhf twins
 ```
 
-See [atlas-exot-2018-06/README.md](atlas-exot-2018-06/README.md) for what it
-downloads. Everything that does not need those files works without them.
+See [atlas-exot-2018-06/README.md](atlas-exot-2018-06/README.md) and
+[atlas-topq-2018-24/README.md](atlas-topq-2018-24/README.md) for what they
+download. Everything that does not need those files works without them.
 
 ## Quick start
 
@@ -93,17 +99,76 @@ model = spey.get_backend("root.roofit")(
 Passing `strip_existing_signal=True` removes the published signal first, so a
 different signal hypothesis can be injected into the same workspace.
 
+### Read an HS3 document instead
+
+`root.hs3` takes the same arguments, but the workspace is an HS3 document —
+a path, a `JSON` string, a `dict`, or a `spey-hs3` `WorkspaceInterpreter` — and
+the regions are named after the HS3 distributions:
+
+```python
+from spey_hs3.helper_functions import WorkspaceInterpreter
+
+from spey_roofit import load_document
+
+path = "atlas-topq-2018-24/workspace_dilep_1NF_HS3.json"
+
+interpreter = WorkspaceInterpreter(load_document(path))
+interpreter.bin_map                  # {'model_SR_alt1': 10}
+interpreter.signal_samples           # which samples the POI scales
+interpreter.expected_background_yields
+
+model = spey.get_backend("root.hs3")(
+    workspace=path,
+    signal_yields={"model_SR_alt1": [4.0, 12.0, 15.0, 12.0, 9.0, 6.0, 4.0, 3.0, 2.0, 1.0]},
+    strip_existing_signal=True,
+    poi_name="mu",
+    analysis="atlas-topq-2018-24",
+)
+
+model.exclusion_confidence_level()
+```
+
+`spey-hs3` provides the interpreter, so it is a dependency of the package.
+`ROOT` does the compilation, so nothing but `PyROOT` is needed to evaluate the
+result.
+
 ## How it works
 
 | module                         | contents                                                                                                                                         |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `spey_roofit.manager`          | lazy `PyROOT` import, batch mode, `RooMsgService` silencing, keep-alive registry                                                                 |
 | `spey_roofit.data`             | `WorkspaceData`: flat, array-based view of a `RooFit` model — channels, bins, parameters, constraints, Asimov data and the calibrated likelihood |
-| `spey_roofit.helper_functions` | `WorkspaceInterpreter`: inspection and signal injection                                                                                          |
-| `spey_roofit.interface`        | `RooFitInterface`: the `spey` `BackendBase` implementation                                                                                       |
+| `spey_roofit.helper_functions` | `WorkspaceInterpreter`: inspection and signal injection for `RooFit` workspaces                                                                  |
+| `spey_roofit.base`             | `RooFitBackendBase`: the parts of the `spey` contract that do not depend on where the model came from                                            |
+| `spey_roofit.interface`        | `RooFitInterface`, the `root.roofit` backend                                                                                                     |
+| `spey_roofit.hs3`              | compilation of an HS3 document into a `RooFit` workspace, and the repairs that needs                                                             |
+| `spey_roofit.hs3_interface`    | `HS3Interface`, the `root.hs3` backend                                                                                                           |
 
 `WorkspaceData` is deliberately independent of how the workspace was produced,
-so an HS3-to-`RooFit` plug-in can reuse it as it stands.
+which is what lets `root.hs3` reuse it unchanged: the HS3 backend only adds the
+compilation step, and every likelihood, Asimov and sampling method is shared
+through `RooFitBackendBase`.
+
+### Reading HS3
+
+`RooJSONFactoryWSTool` does the actual work, but three corrections are needed
+around it, all of them for documents that current `ROOT` versions produce or
+demand:
+
+* the reader creates the constraint terms of a `histfactory_dist` on the fly
+  and does **not** declare their global observables, so the model configuration
+  it builds is incomplete — for the ATLAS dilepton workspace it declares 1 of
+  226. `complete_model_config` recovers them; without it the data vector would
+  be missing its entire auxiliary half and every Asimov dataset would be wrong.
+* `ROOT` 6.36 *writes* `HistFactory` Gaussian constraints without the `x` key
+  the standard requires, producing documents its own reader rejects with
+  `node '...Constraint' is missing key 'x'`. `repair_document` restores it from
+  the naming convention, and says so in a warning.
+* the reader looks up a domain named literally `default_domain` and aborts the
+  process — with an uncatchable C++ exception — if the document names its
+  domain anything else. `ensure_default_domain` adds one, as the union of what
+  is already declared, so a perfectly valid document does not take the
+  interpreter down.
 
 ### Data and parameter layout
 
@@ -144,13 +209,22 @@ than letting `RooFit` silently clamp a value to it.
 
 ## Validation
 
-`notebooks/validation.ipynb` compares the plug-in against
+There is one notebook per backend.
+
+[`atlas-exot-2018-06/validation.ipynb`](atlas-exot-2018-06/validation.ipynb)
+covers `root.roofit`:
 
 * `spey`'s own `default.uncorrelated_background` and
   `default.correlated_background` likelihoods, reproduced as `HistFactory`
   workspaces — the log-likelihoods agree to machine precision;
-* `pyhf` on the same model — log-likelihood, Asimov data and `CLs` agree to
-  machine precision;
+* `pyhf` on the same model, through the
+  [`spey-pyhf`](https://github.com/SpeysideHEP/spey-pyhf) plug-in so that both
+  sides are driven by the same `spey` interface — log-likelihood, Asimov
+  data and `CLs` agree to machine precision;
+* the distribution of the profile-likelihood test statistic over 2000 toys,
+  against $\chi^2_1$ and between all three implementations of the model;
+* expected and observed exclusion and the 95% CL upper limit, as a Brazilian
+  plot drawn with each of the three;
 * the published ATLAS full Run-2 monojet analysis
   ([arXiv:2102.10874](https://arxiv.org/abs/2102.10874),
   [HEPData ins1847779](https://www.hepdata.net/record/ins1847779)) — the
@@ -158,10 +232,65 @@ than letting `RooFit` silently clamp a value to it.
   and the profile likelihood recovers the signal strength stored in the
   published post-fit workspace.
 
+[`atlas-topq-2018-24/validation.ipynb`](atlas-topq-2018-24/validation.ipynb)
+covers `root.hs3`:
+
+* HS3 documents written by hand to be mathematically identical to
+  `default.uncorrelated_background`, `default.correlated_background` and
+  `default.poisson` — they agree to $10^{-12}$, to the exact Jacobian
+  `0.5 log det(rho)`, and to $10^{-14}$ respectively;
+* the Asimov dataset — both halves, including the auxiliary measurements,
+  which follow the nuisance parameters as eq. (25) of
+  [arXiv:1007.1727](https://arxiv.org/abs/1007.1727) requires;
+* the distribution of the profile-likelihood test statistic over 2000 toys,
+  against $\chi^2_1$ and against `spey`;
+* expected and observed exclusion and the 95% CL upper limit, as a Brazilian
+  plot;
+* a `HistFactory` workspace exported to HS3 by `ROOT` and read back — the two
+  backends agree **bit for bit**;
+* the published ATLAS $t\bar{t}\gamma$ measurement
+  ([arXiv:2403.09452](https://arxiv.org/abs/2403.09452),
+  [HEPData ins2768921](https://www.hepdata.net/record/ins2768921)), whose six
+  likelihoods HEPData publishes both as HS3 and as `pyhf` workspaces. The fit
+  recovers the measured signal strength, and the expected yields agree with the
+  `pyhf` twin — read through `spey-pyhf` — to machine precision.
+
+Two caveats are worth stating, because both are easy to mistake for bugs.
+
+All `pyhf` comparisons go through the `spey-pyhf` plug-in rather than through
+`pyhf` directly: both sides are then `spey` `StatisticalModel`s answering the
+same calls, so the only thing that differs is how the likelihood is evaluated.
+The plug-in selects the `jax` tensor backend when `jax` is importable; the
+comparisons force `numpy`, which is `pyhf`'s own reference implementation and
+has no platform-dependent precision.
+
+**The two serialisations of the ATLAS likelihood are not the same model.** The
+HS3 document asks for a Poisson constraint on the Monte-Carlo statistics
+parameters, which is what `HistFactory` does, whereas `pyhf` always uses a
+Gaussian one. The rate models are identical; the constraint models are not.
+
+**`sigma_mu` is computed differently by the two backends.** `spey` uses the
+analytic Hessian of the log-likelihood when a backend supplies one, and
+`RooFit` does not supply one, so both `root` backends fall back to the
+asymptotic $\sigma_A=|\mu-\mu^\prime|/\sqrt{q_{\mu,A}}$. The two estimators of
+$\sigma_\mu$ agree only in the asymptotic limit; everything computed from the
+likelihood itself agrees to optimiser precision.
+
+### Which `spey` the numbers were produced with
+
+The comparisons above were run against `spey` 0.2.8, the first version whose
+Asimov datasets carry the profiled auxiliary measurements. Up to 0.2.7 the
+built-in backends dropped the auxiliary half of the data vector, so the
+`root` backends and the built-in ones disagreed on every post-fit Asimov
+quantity — a few parts in a thousand on `CLs`, a few per cent on the upper
+limit. Both validation notebooks and the Asimov assertions in the test suite
+expect the fixed behaviour.
+
 Run the test suite with
 
 ```bash
-./atlas-exot-2018-06/download.sh   # once, for the ATLAS-based tests
+./atlas-exot-2018-06/download.sh   # once, for the atlas-marked tests
+./atlas-topq-2018-24/download.sh   # once, for the topq-marked tests
 pytest
 ```
 
@@ -169,7 +298,7 @@ The ATLAS tests skip themselves if the material has not been downloaded, so
 `pytest` passes on a fresh clone either way. To skip them explicitly:
 
 ```bash
-pytest -m "not atlas"
+pytest -m "not atlas and not topq"
 ```
 
 ## Performance
@@ -188,8 +317,20 @@ model (78 regions, 151 free parameters, Apple M-series laptop):
 | `sigma_mu`                                     | 1.5 min |
 | `poi_upper_limit`                              | 50 min  |
 
+The HS3 backend adds the compilation step, which is the only cost specific to
+it; everything after that is the same `RooFit` model. On the ATLAS
+$t\bar{t}\gamma$ workspaces:
+
+| workspace | bins | free parameters | compile | one `likelihood(poi_test)` |
+| --- | --- | --- | --- | --- |
+| `dilep_1NF` | 10 | 226 | 2 s | 9 s |
+| `ljets_1NF` | 21 | 249 | 2 s | 56 s |
+| `combined_1NF` | 31 | 271 | 2 s | 83 s |
+
 Models with fewer nuisance parameters are essentially instantaneous — the toy
-models in `tests/` run a full hypothesis test in well under a second.
+models in `tests/` run a full hypothesis test in well under a second, and the
+2000-toy test-statistic study of the HS3 notebook takes about two minutes
+through both backends.
 
 `RooFit`'s automatic-differentiation backend (`EvalBackend("codegen")`) would
 remove the bottleneck, but it segfaults on this workspace with ROOT 6.36, so it
