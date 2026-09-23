@@ -4,7 +4,7 @@
 #
 # The files are large and belong to the HEPData record, not to this repository,
 # so they are not committed here. This script fetches everything that
-# `notebooks/validation.ipynb` and `tests/test_atlas.py` need:
+# `validation.ipynb` and `tests/test_atlas.py` need:
 #
 #   bOnlyFit_postFit.root    background-only RooFit workspace      (resource r3)
 #   sPlusBFit_postFit.root   signal+background RooFit workspace    (resource r2)
@@ -235,4 +235,4 @@ if [[ ${CHECK_ONLY} -eq 1 ]]; then
     exit "${status}"
 fi
 
-echo "done. Everything notebooks/validation.ipynb needs is in place."
+echo "done. Everything validation.ipynb needs is in place."
