@@ -24,13 +24,14 @@ extra constraint term enters the likelihood.
 from __future__ import annotations
 
 import os
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
 __all__ = [
     "uncorrelated_background_workspace",
     "correlated_background_workspace",
+    "uncorrelated_background_pyhf_workspace",
 ]
 
 
@@ -239,3 +240,96 @@ def correlated_background_workspace(
     factor = np.linalg.cholesky(np.asarray(covariance, dtype=np.float64))
     templates = [factor[:, k] for k in range(factor.shape[1])]
     return _build(path, name, background, signal, data, templates)
+
+
+def uncorrelated_background_pyhf_workspace(
+    background: Sequence[float],
+    signal: Sequence[float],
+    data: Sequence[float],
+    uncertainties: Sequence[float],
+) -> Tuple[dict, List[dict]]:
+    r"""
+    Build the ``pyhf`` twin of ``default.uncorrelated_background``.
+
+    One single-bin channel per bin, each carrying a ``histosys`` whose up and
+    down templates are :math:`b_i\pm\sigma_i`. ``HistFactory``'s piecewise
+    interpolation is linear between them, so the model is exactly
+
+    .. math::
+
+        \mathcal{L}(\mu,\theta) =
+            \prod_i{\rm Pois}\left(n_i\vert\mu s_i + b_i + \theta_i\sigma_i\right)
+            \cdot\prod_i{\rm Gauss}\left(0\vert\theta_i,1\right)\ .
+
+    The result is split the way ``spey-pyhf`` expects it: a background-only
+    workspace, and a ``JSON`` patch adding the signal sample. Handing the
+    plug-in a workspace that already contains its signal together with an empty
+    patch also evaluates correctly, but leaves
+    :attr:`~spey.BackendBase.is_alive` ``False`` — the plug-in judges that from
+    the patch — and ``spey`` then reports an infinite upper limit.
+
+    .. attention::
+
+        ``histosys`` is the modifier to use here, **not** ``shapesys``. The
+        latter scales the background by a multiplicative :math:`\gamma` with an
+        asymmetric Poisson constraint, which is a genuinely different
+        likelihood — the two disagree by several log units at the same
+        parameter point.
+
+    Args:
+        background (``Sequence[float]``): background yields :math:`b_i`.
+        signal (``Sequence[float]``): signal yields :math:`s_i`.
+        data (``Sequence[float]``): observed counts :math:`n_i`.
+        uncertainties (``Sequence[float]``): absolute background uncertainties
+          :math:`\sigma_i`.
+
+    Returns:
+        ``Tuple[dict, List[dict]]``:
+        The background-only workspace and the signal patch, ready to be passed
+        to ``spey.get_backend("pyhf")`` as ``background_only_model`` and
+        ``signal_patch``.
+    """
+    channels, observations, patch = [], [], []
+    zipped = zip(background, signal, uncertainties, data)
+    for index, (nominal, yields, sigma, observed) in enumerate(zipped):
+        channels.append(
+            {
+                "name": f"b{index}",
+                "samples": [
+                    {
+                        "name": "bkg",
+                        "data": [float(nominal)],
+                        "modifiers": [
+                            {
+                                "name": f"theta{index}",
+                                "type": "histosys",
+                                "data": {
+                                    "hi_data": [float(nominal) + float(sigma)],
+                                    "lo_data": [float(nominal) - float(sigma)],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        observations.append({"name": f"b{index}", "data": [float(observed)]})
+        patch.append(
+            {
+                "op": "add",
+                "path": f"/channels/{index}/samples/1",
+                "value": {
+                    "name": "sig",
+                    "data": [float(yields)],
+                    "modifiers": [{"name": "mu", "type": "normfactor", "data": None}],
+                },
+            }
+        )
+
+    workspace = {
+        "channels": channels,
+        "observations": observations,
+        "measurements": [{"name": "m", "config": {"poi": "mu", "parameters": []}}],
+        "version": "1.0.0",
+    }
+    return workspace, patch

@@ -1,6 +1,6 @@
 r"""
 Tests of the ``spey`` backend, validated against the built-in ``spey``
-likelihoods and against ``pyhf``.
+likelihoods and against the ``spey-pyhf`` plug-in.
 
 The toy workspaces are built so that they are mathematically identical to
 ``default.uncorrelated_background`` and ``default.correlated_background``,
@@ -11,11 +11,11 @@ and are encoded in the assertions below:
   correlated Gaussian on :math:`\theta`, whereas the ``HistFactory`` twin uses
   the uncorrelated basis :math:`\theta=D^{-1}Lz`. The two log-likelihoods
   therefore differ by the constant :math:`\tfrac12\log\det\rho`.
-* the built-in ``spey`` backends keep the auxiliary data of an Asimov dataset
-  at the centre of the constraint, while ``RooFit`` — like ``pyhf`` and like
-  :xref:`1007.1727` — sets it to the profiled :math:`\hat\theta`. Asimov
-  quantities are consequently validated against ``pyhf`` rather than against
-  the built-in backends.
+* ``spey`` before 0.2.8 kept the auxiliary data of an Asimov dataset at the
+  centre of the constraint, while ``RooFit`` — like ``pyhf`` and like
+  :xref:`1007.1727` — sets it to the profiled :math:`\hat\theta`. From 0.2.8
+  the two agree, and the assertions below require it; against an older
+  ``spey`` the Asimov comparisons have to go through ``pyhf`` instead.
 """
 
 import numpy as np
@@ -117,16 +117,25 @@ def test_likelihood_and_maximum_likelihood_match_spey(uncorrelated):
 
 
 def test_expected_data_matches_spey(uncorrelated):
-    """The main part of the Asimov data agrees with the built-in backend."""
+    r"""
+    The whole Asimov dataset agrees with the built-in backend.
+
+    Both halves have to match: the expected bin counts, and the auxiliary
+    measurements, which follow the nuisance parameters the dataset was
+    generated at rather than staying at the centre of the constraint. That is
+    the defining property of an Asimov dataset — refitting it returns the
+    parameters it was built from — and eq. (25) of :xref:`1007.1727` requires
+    it. ``spey`` only satisfies it from 0.2.8 onwards.
+    """
     roofit, reference = uncorrelated
     pars = [1.0, 0.2, -0.3, 0.4]
     ours = roofit.backend.expected_data(pars)
     theirs = reference.backend.expected_data(pars)
     nbins = roofit.backend.model.nbins
+
     assert ours[:nbins] == pytest.approx(theirs[:nbins], rel=1e-10)
-    # spey keeps the auxiliary data at the centre of the constraint, RooFit
-    # moves it to the nuisance parameter values, as pyhf and RooStats do.
     assert ours[nbins:] == pytest.approx(pars[1:])
+    assert ours == pytest.approx(theirs, rel=1e-10, abs=1e-12)
 
 
 def test_correlated_background_matches_spey(wrapper, correlated_workspace, toy_yields):
@@ -223,85 +232,58 @@ def test_signal_injection_through_the_backend(
         assert ours(pars) == pytest.approx(theirs(pars), rel=1e-10, abs=1e-10)
 
 
-def test_agrees_with_pyhf(uncorrelated, toy_yields):
-    """
-    Log-likelihood, Asimov data and exclusion agree with ``pyhf``.
+def test_agrees_with_spey_pyhf(uncorrelated, toy_yields, pyhf_backend):
+    r"""
+    Log-likelihood, Asimov data and exclusion agree with ``spey-pyhf``.
+
+    The comparison goes through the ``spey-pyhf`` plug-in rather than through
+    ``pyhf`` directly, so that both sides are asked the same questions by the
+    same ``spey`` interface and only the likelihood implementation differs.
 
     ``pyhf`` implements the same ``HistFactory`` model, including the
     convention that the auxiliary data of an Asimov dataset follow the nuisance
-    parameters, so the agreement here is expected to be exact.
+    parameters, so the agreement is expected to be exact.
     """
-    pyhf = pytest.importorskip("pyhf")
-    pyhf.set_backend("numpy", "scipy")
+    from conftest import roofit_to_pyhf_name, translate_parameters
+    from toy_models import uncorrelated_background_pyhf_workspace
 
-    channels, observations = [], []
-    zipped = zip(
+    assert pyhf_backend.manager.backend == "numpy"
+
+    workspace, patch = uncorrelated_background_pyhf_workspace(
         toy_yields["background"],
         toy_yields["signal"],
-        toy_yields["uncertainty"],
         toy_yields["data"],
+        toy_yields["uncertainty"],
     )
-    for index, (background, signal, uncertainty, observed) in enumerate(zipped):
-        channels.append(
-            {
-                "name": f"b{index}",
-                "samples": [
-                    {
-                        "name": "bkg",
-                        "data": [background],
-                        "modifiers": [
-                            {
-                                "name": f"theta{index}",
-                                "type": "histosys",
-                                "data": {
-                                    "hi_data": [background + uncertainty],
-                                    "lo_data": [background - uncertainty],
-                                },
-                            }
-                        ],
-                    },
-                    {
-                        "name": "sig",
-                        "data": [signal],
-                        "modifiers": [{"name": "mu", "type": "normfactor", "data": None}],
-                    },
-                ],
-            }
-        )
-        observations.append({"name": f"b{index}", "data": [observed]})
-    workspace = pyhf.Workspace(
-        {
-            "channels": channels,
-            "observations": observations,
-            "measurements": [{"name": "m", "config": {"poi": "mu", "parameters": []}}],
-            "version": "1.0.0",
-        }
+    theirs = spey.get_backend("pyhf")(
+        background_only_model=workspace, signal_patch=patch, analysis="spey-pyhf"
     )
-    model = workspace.model()
-    data = workspace.data(model)
-
+    assert theirs.backend.is_alive
     roofit, _ = uncorrelated
+
+    our_names = roofit.backend.model.parameter_names
+    their_names = theirs.backend.config().parameter_names
+    # HistFactory calls a constrained nuisance parameter alpha_theta0, pyhf
+    # calls it theta0.
+    renamed = [roofit_to_pyhf_name(name) for name in our_names]
+    assert sorted(renamed) == sorted(their_names)
+
     ours = roofit.backend.get_logpdf_func()
-    order = model.config.par_order
-    index = [order.index(name) for name in ("mu", "theta0", "theta1", "theta2")]
+    reference = theirs.backend.get_logpdf_func()
 
     rng = np.random.default_rng(5)
     for _ in range(8):
         pars = np.concatenate([[rng.uniform(-1.0, 2.0)], rng.normal(0.0, 0.6, 3)])
-        translated = np.zeros(model.config.npars)
-        for position, target in enumerate(index):
-            translated[target] = pars[position]
-        assert ours(pars) == pytest.approx(
-            float(model.logpdf(translated, data)[0]), rel=1e-10, abs=1e-10
-        )
-        # pyhf orders the auxiliary data by `auxdata_order`, spey-roofit sorts
-        # the global observables by name; both give theta0, theta1, theta2 here.
-        assert model.config.auxdata_order == ["theta0", "theta1", "theta2"]
+        translated = translate_parameters(pars, renamed, their_names)
+        assert ours(pars) == pytest.approx(reference(translated), rel=1e-10, abs=1e-10)
+
+        # Both halves of the Asimov dataset, bin counts and auxiliary
+        # measurements; in this model both backends order them the same way.
         assert roofit.backend.expected_data(pars) == pytest.approx(
-            np.asarray(model.expected_data(translated)).tolist(), rel=1e-10
+            theirs.backend.expected_data(list(translated)), rel=1e-10, abs=1e-12
         )
 
-    observed_cls = pyhf.infer.hypotest(1.0, data, model, test_stat="qtilde")
-    assert roofit.exclusion_confidence_level()[0] == pytest.approx(
-        1.0 - float(observed_cls), rel=1e-4
+    assert roofit.exclusion_confidence_level() == pytest.approx(
+        theirs.exclusion_confidence_level(), rel=1e-4
     )
+    assert roofit.poi_upper_limit() == pytest.approx(theirs.poi_upper_limit(), rel=1e-4)
