@@ -49,6 +49,7 @@ validation = [
 [project.entry-points."spey.backend.plugins"]
 "root.roofit" = "spey_roofit:RooFitInterface"
 "root.hs3" = "spey_roofit:HS3Interface"
+"root.cms-combine" = "spey_roofit:CombineInterface"
 
 [tool.setuptools.dynamic]
 version = {attr = "spey_roofit._version.__version__"}
@@ -61,6 +62,7 @@ testpaths = ["tests"]
 markers = [
     "atlas: tests that need the ATLAS ROOT files in atlas-exot-2018-06/",
     "topq: tests that need the ATLAS HS3 files in atlas-topq-2018-24/",
+    "cms: tests that need the CMS datacards in cms-exo-24-011/",
     "slow: tests that run a full hypothesis test",
 ]
 

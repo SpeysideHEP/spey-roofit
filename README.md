@@ -5,30 +5,35 @@
 
 <img src="https://raw.githubusercontent.com/SpeysideHEP/spey/main/docs/img/spey-plug-in.png" alt="Spey logo" style="float: right; margin-right: 20px" align="right" width=250px/>
 
-[`RooFit`](https://root.cern/manual/roofit/) and
-[HS3](https://hep-statistics-serialization-standard.github.io/) plug-ins for
-[`spey`](https://spey.readthedocs.io).
+[`RooFit`](https://root.cern/manual/roofit/),
+[HS3](https://hep-statistics-serialization-standard.github.io/) and
+[CMS Combine](https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/)
+plug-ins for [`spey`](https://spey.readthedocs.io).
 
 `spey-roofit` turns any binned `RooFit` workspace into a `spey`
 `StatisticalModel`, so that exclusion limits, significances, upper limits and
 model combination are computed by `spey` exactly as they are for any other
-likelihood prescription. It provides two backends:
+likelihood prescription. It provides three backends:
 
 | backend | input |
 | --- | --- |
 | `root.roofit` | a `RooFit` workspace: a `HistFactory` `.root` file from HEPData, or one built in memory |
 | `root.hs3` | an HS3 `JSON` document, compiled into a `RooFit` workspace by `RooJSONFactoryWSTool` |
+| `root.cms-combine` | a `CMS Combine` datacard, compiled into a `RooFit` workspace by `combine` itself |
 
-Both share the same likelihood, Asimov and sampling machinery, so an analysis
-published in either format gives the same numbers. Each ships a **workspace
-interpreter** so that a user can inspect the region structure of an analysis
-and inject their own signal without knowing anything about `RooFit` — or about
-HS3.
+All three share the same likelihood, Asimov and sampling machinery, so an
+analysis published in any of the three formats gives the same numbers. Each
+ships an **interpreter** so that a user can inspect the region structure of an
+analysis and inject their own signal without knowing anything about `RooFit` —
+or about HS3, or about `combine`.
+
+Neither the HS3 nor the `combine` model is reimplemented here: `ROOT` compiles
+the one and `combine` the other, and the plug-in reads the result.
 
 ## Installation
 
-`ROOT` is only distributed through `conda-forge`, so the environment is best
-created with `conda`:
+`ROOT` and `combine` are only distributed through `conda-forge`, so the
+environment is best created with `conda`:
 
 ```bash
 conda env create -f environment.yml
@@ -39,18 +44,20 @@ pip install -e .
 `environment-lock.yml` pins the exact versions the shipped validation results
 were produced with.
 
-The ATLAS material used by the examples below, by the validation notebooks
-and by the `atlas`- and `topq`-marked tests is not committed — it belongs to
-the HEPData records. Fetch it with:
+The published material used by the examples below, by the validation notebooks
+and by the `atlas`-, `topq`- and `cms`-marked tests is not committed — it
+belongs to the records that publish it. Fetch it with:
 
 ```bash
 ./atlas-exot-2018-06/download.sh    # monojet, RooFit workspaces
 ./atlas-topq-2018-24/download.sh    # ttbar+gamma, HS3 documents and pyhf twins
+./cms-exo-24-011/download.sh        # dijet angular, CMS Combine datacards
 ```
 
-See [atlas-exot-2018-06/README.md](atlas-exot-2018-06/README.md) and
-[atlas-topq-2018-24/README.md](atlas-topq-2018-24/README.md) for what they
-download. Everything that does not need those files works without them.
+See [atlas-exot-2018-06/README.md](atlas-exot-2018-06/README.md),
+[atlas-topq-2018-24/README.md](atlas-topq-2018-24/README.md) and
+[cms-exo-24-011/README.md](cms-exo-24-011/README.md) for what they download.
+Everything that does not need those files works without them.
 
 ## Quick start
 
@@ -132,6 +139,47 @@ model.exclusion_confidence_level()
 `ROOT` does the compilation, so nothing but `PyROOT` is needed to evaluate the
 result.
 
+### Read a CMS Combine datacard
+
+`root.cms-combine` takes a datacard — a path, or its text — and hands it to
+`combine`. `DatacardInterpreter` is what shows the model first:
+
+```python
+from spey_roofit import DatacardInterpreter
+from spey_roofit.combine import SWAPPED_TWO_HYPOTHESIS_MODEL
+
+card = "cms-exo-24-011/datacards/input/chi_datacard13TeV3_ADD12000_run2.txt"
+
+interpreter = DatacardInterpreter(card)
+interpreter.bin_map                  # {'bin0': 12, ..., 'bin7': 12}
+interpreter.signal_processes         # ['QCDADD12000', 'QCDADD12000_ALT']
+interpreter.summary(max_channels=2)  # channels, samples and their yields
+
+model = spey.get_backend("root.cms-combine")(
+    datacard=card,
+    physics_model=SWAPPED_TWO_HYPOTHESIS_MODEL,   # the -P option of text2workspace.py
+    analysis="cms-exo-24-011",
+)
+
+model.exclusion_confidence_level(poi_test=1.0)
+```
+
+A published card is reinterpreted the same way as a `RooFit` workspace, by
+stripping the signal it declares and attaching one's own:
+
+```python
+model = spey.get_backend("root.cms-combine")(
+    datacard=card,
+    signal_yields={"bin7": [4.0, 3.0, 2.0, 1.0, 1.0] + [0.0] * 7},
+    strip_existing_signal=True,
+    analysis="reinterpretation",
+)
+```
+
+The card is *rewritten* — one extra column per channel, the signal columns
+removed — and handed back to `combine`, so the reinterpreted model is built by
+exactly the same code as the published one.
+
 ## How it works
 
 | module                         | contents                                                                                                                                         |
@@ -143,11 +191,14 @@ result.
 | `spey_roofit.interface`        | `RooFitInterface`, the `root.roofit` backend                                                                                                     |
 | `spey_roofit.hs3`              | compilation of an HS3 document into a `RooFit` workspace, and the repairs that needs                                                             |
 | `spey_roofit.hs3_interface`    | `HS3Interface`, the `root.hs3` backend                                                                                                           |
+| `spey_roofit.combine`          | `DatacardInterpreter`, and the thin layer that drives `combine`'s own parser and model builder                                                   |
+| `spey_roofit.combine_interface`| `CombineInterface`, the `root.cms-combine` backend                                                                                               |
+| `spey_roofit.physics_models`   | a `combine` physics model the plug-in contributes, for two hypothesis cards                                                                      |
 
 `WorkspaceData` is deliberately independent of how the workspace was produced,
-which is what lets `root.hs3` reuse it unchanged: the HS3 backend only adds the
-compilation step, and every likelihood, Asimov and sampling method is shared
-through `RooFitBackendBase`.
+which is what lets `root.hs3` and `root.cms-combine` reuse it unchanged: those
+backends only add a compilation step, and every likelihood, Asimov and sampling
+method is shared through `RooFitBackendBase`.
 
 ### Reading HS3
 
@@ -169,6 +220,39 @@ demand:
   domain anything else. `ensure_default_domain` adds one, as the union of what
   is already declared, so a perfectly valid document does not take the
   interpreter down.
+
+### Driving `combine`
+
+`text2workspace.py` is a thin script around `combine`'s `DatacardParser` and
+`ShapeBuilder`; the plug-in runs the same two in process. The workspace that
+comes back is `combine`'s own — `ProcessNormalization`,
+`FastVerticalInterpHistPdf2`, a `RooSimultaneous` over the channels — and every
+switch of the tool is reachable through `combine_options()`.
+
+Four things are arranged around it, none of which touches the likelihood
+`combine` builds:
+
+* **plain Gaussian constraints.** `combine` writes them as
+  `SimpleGaussianConstraint`, which drops the `1/sqrt(2 pi)` of every term and
+  would put `log L` in a different normalisation from every other `spey`
+  backend. The plug-in asks for `--no-optimize-pdfs`; no likelihood ratio
+  changes either way.
+* **room around the auxiliary measurements.** `spey` normalises a constraint
+  over its auxiliary measurement, and `combine` gives a `shape` parameter the
+  range `[-4, 4]`, which at `theta = -1.5` already cuts six parts in a thousand
+  off the Gaussian. `combine` never notices, because it does not normalise its
+  constraints at all.
+* **a complete nuisance set.** `combine` lists only the *constrained*
+  parameters in its `ModelConfig`, so a `rateParam` would float in the model
+  but never be profiled. Everything that floats is added.
+* **one-bin templates for a counting card.** `combine` builds a card without
+  `shapes` directives as a product of `RooPoisson` terms over plain variables
+  rather than as a binned model, which is the same likelihood but not a shape
+  `WorkspaceData` can read.
+
+Signal injection and stripping work on the *datacard*, not on the workspace:
+the card is rewritten — a column per channel added or the signal columns
+removed, every systematics row kept square — and `combine` compiles the result.
 
 ### Data and parameter layout
 
@@ -255,6 +339,32 @@ covers `root.hs3`:
   recovers the measured signal strength, and the expected yields agree with the
   `pyhf` twin — read through `spey-pyhf` — to machine precision.
 
+[`cms-exo-24-011/validation.ipynb`](cms-exo-24-011/validation.ipynb) covers
+`root.cms-combine`:
+
+* datacards written by hand so that the model `combine` builds from them is one
+  of `spey`'s own likelihoods — a counting card without systematics is
+  `default.poisson`, and `autoMCStats` in its Gaussian mode is
+  `default.uncorrelated_background`, because Barlow–Beeston-lite is the
+  additive constraint that backend implements. `lnN` is *not*: it is
+  multiplicative, and has no counterpart among `spey`'s defaults;
+* `pyhf` on the same models, through `spey-pyhf`: a symmetric `lnN` is a
+  `normsys` and `autoMCStats` is a `staterror`, both to the tolerance of the
+  minimiser;
+* `HistFactory` on the same model, through `root.roofit`: a `shape`
+  uncertainty whose varied templates preserve the total yield is a `HistoSys`,
+  and the two agree to machine precision;
+* the Asimov dataset, both halves;
+* the distribution of the profile-likelihood test statistic over 2000 toys and
+  the expected exclusion as a Brazilian plot, with all three implementations;
+* the published CMS dijet angular search
+  ([CMS-EXO-24-011](https://repository.cern/records/wqfww-n3j76),
+  [HEPData ins3136278](https://www.hepdata.net/record/ins3136278)) — a two
+  hypothesis fit over eight mass bins with 149 shape uncertainties, whose
+  structure and yields are reproduced from the card, whose $\hat{x}$ comes out
+  compatible with the Standard Model, and whose limit on the ADD scale is
+  recovered by scanning the twelve published mass points.
+
 Two caveats are worth stating, because both are easy to mistake for bugs.
 
 All `pyhf` comparisons go through the `spey-pyhf` plug-in rather than through
@@ -291,14 +401,15 @@ Run the test suite with
 ```bash
 ./atlas-exot-2018-06/download.sh   # once, for the atlas-marked tests
 ./atlas-topq-2018-24/download.sh   # once, for the topq-marked tests
+./cms-exo-24-011/download.sh       # once, for the cms-marked tests
 pytest
 ```
 
-The ATLAS tests skip themselves if the material has not been downloaded, so
+Those tests skip themselves if the material has not been downloaded, so
 `pytest` passes on a fresh clone either way. To skip them explicitly:
 
 ```bash
-pytest -m "not atlas and not topq"
+pytest -m "not atlas and not topq and not cms"
 ```
 
 ## Performance
@@ -327,10 +438,28 @@ $t\bar{t}\gamma$ workspaces:
 | `ljets_1NF` | 21 | 249 | 2 s | 56 s |
 | `combined_1NF` | 31 | 271 | 2 s | 83 s |
 
+The `combine` backend adds its own compilation step and is otherwise the same
+`RooFit` model again. `combine` builds its templates with
+`FastVerticalInterpHistPdf2`, which caches the morphed histogram of a process
+and only rebuilds it when one of its nuisance parameters moves, so a card with
+a hundred shape uncertainties stays fast. On the CMS dijet angular card
+(8 channels, 96 bins, 149 shape uncertainties):
+
+| operation | time |
+| --- | --- |
+| parse the card, read its templates | 2 s |
+| compile it with `combine` | 4 s |
+| one likelihood evaluation | 0.2 ms |
+| `maximize_likelihood` | 4 s |
+| one conditional fit, `likelihood(poi_test)` | 2 s |
+| `exclusion_confidence_level` | 18 s |
+
 Models with fewer nuisance parameters are essentially instantaneous — the toy
 models in `tests/` run a full hypothesis test in well under a second, and the
 2000-toy test-statistic study of the HS3 notebook takes about two minutes
-through both backends.
+through both backends. The same study in the `combine` notebook takes about
+eighty minutes, almost all of it in `spey-pyhf`: the three backends are run on
+the same toys, and `pyhf` is by far the slowest of them on this model.
 
 `RooFit`'s automatic-differentiation backend (`EvalBackend("codegen")`) would
 remove the bottleneck, but it segfaults on this workspace with ROOT 6.36, so it
