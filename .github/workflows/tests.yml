@@ -29,8 +29,10 @@ jobs:
                   auto-activate-base: false
                   activate-environment: spey-roofit
 
-            - name: Install ROOT
-              run: conda install -y -c conda-forge "root>=6.30"
+            - name: Install ROOT and CMS Combine
+              # the CMS Combine backend drives combine itself; both are
+              # conda-forge only, which is why they are not project dependencies
+              run: conda install -y -c conda-forge "root>=6.30" "cms-combine>=10.5"
 
             - name: Install the package
               run: |
@@ -45,6 +47,7 @@ jobs:
               run: |
                   python -c "import spey; print(spey.AvailableBackends())"
                   python -c "import spey_roofit; print(spey_roofit.__version__, spey_roofit.manager.version)"
+                  python -c "from spey_roofit.combine import combine_modules; combine_modules(); print('combine is importable')"
 
             - name: Run the test suite
               run: pytest --cov=spey_roofit -q
