@@ -15,7 +15,7 @@ dependencies:
       # profiled auxiliary measurements; the validation compares against it.
       # Neither it nor the required spey-hs3 is on PyPI yet.
       - spey @ git+https://github.com/SpeysideHEP/spey@multipoi-multihisto
-      - spey-hs3==0.03
+      - spey-hs3==0.0.3
       - spey-pyhf==0.2.2
       - pyhf==0.7.6
       - iminuit==2.32.0

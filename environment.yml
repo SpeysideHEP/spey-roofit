@@ -21,7 +21,7 @@ dependencies:
       # newer than its last release. Neither is on PyPI yet, hence the git
       # sources; switch to `spey>=0.2.8` and `spey-hs3>=0.0.3` once they are.
       - spey @ git+https://github.com/SpeysideHEP/spey@multipoi-multihisto
-      - spey-hs3>=0.03
+      - spey-hs3>=0.0.3
       # validation and testing; the pyhf comparisons go through the plug-in
       - spey-pyhf>=0.2.0
       - pytest>=7.1.2
