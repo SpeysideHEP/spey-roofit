@@ -1,12 +1,13 @@
 # Exact versions the validation results shipped with this repository were
 # produced with. Use `environment.yml` for day-to-day work and this file to
-# reproduce the numbers in the two `validation.ipynb` notebooks bit for bit.
+# reproduce the numbers in the three `validation.ipynb` notebooks bit for bit.
 name: spey-roofit-lock
 channels:
   - conda-forge
 dependencies:
   - python=3.13.9
   - root=6.36.04
+  - cms-combine=10.5.0
   - numpy=2.3.5
   - scipy=1.16.3
   - pip
