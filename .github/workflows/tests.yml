@@ -1,46 +1,50 @@
 name: tests
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
+    push:
+        branches: [main]
+    pull_request:
+    workflow_dispatch:
 
 jobs:
-  test:
-    name: pytest (python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.12"]
-    defaults:
-      run:
-        shell: bash -el {0}
-    steps:
-      - uses: actions/checkout@v4
+    test:
+        name: pytest (python ${{ matrix.python-version }})
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                python-version: ["3.10", "3.12"]
+        defaults:
+            run:
+                shell: bash -el {0}
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Set up conda with ROOT
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          python-version: ${{ matrix.python-version }}
-          channels: conda-forge
-          auto-activate-base: false
-          activate-environment: spey-roofit
+            - name: Set up conda with ROOT
+              uses: conda-incubator/setup-miniconda@v3
+              with:
+                  miniforge-version: latest
+                  python-version: ${{ matrix.python-version }}
+                  channels: conda-forge
+                  auto-activate-base: false
+                  activate-environment: spey-roofit
 
-      - name: Install ROOT
-        run: conda install -y -c conda-forge "root>=6.30"
+            - name: Install ROOT
+              run: conda install -y -c conda-forge "root>=6.30"
 
-      - name: Install the package
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,validation]"
+            - name: Install the package
+              run: |
+                  python -m pip install --upgrade pip
+                  # The Asimov fix of spey 0.2.8 and the WorkspaceInterpreter the HS3
+                  # backend needs are not on PyPI yet. Drop these two lines once
+                  # spey>=0.2.8 and spey-hs3>=0.0.3 are released.
+                  python -m pip install "spey @ git+https://github.com/SpeysideHEP/spey@multipoi-multihisto"
+                  python -m pip install -e ".[dev,validation]"
 
-      - name: Smoke test
-        run: |
-          python -c "import spey; print(spey.AvailableBackends())"
-          python -c "import spey_roofit; print(spey_roofit.__version__, spey_roofit.manager.version)"
+            - name: Smoke test
+              run: |
+                  python -c "import spey; print(spey.AvailableBackends())"
+                  python -c "import spey_roofit; print(spey_roofit.__version__, spey_roofit.manager.version)"
 
-      - name: Run the test suite
-        run: pytest --cov=spey_roofit -q
+            - name: Run the test suite
+              run: pytest --cov=spey_roofit -q
