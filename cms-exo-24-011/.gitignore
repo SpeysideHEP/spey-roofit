@@ -1,0 +1,8 @@
+# The statistical model published with the paper is fetched by ./download.sh,
+# not committed. Keep only the script, this file, the README and the notebook
+# under version control.
+*
+!.gitignore
+!README.md
+!download.sh
+!validation.ipynb
