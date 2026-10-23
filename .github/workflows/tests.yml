@@ -45,9 +45,9 @@ jobs:
 
             - name: Smoke test
               run: |
-                  python -c "import spey; print(spey.AvailableBackends())"
+                  python -c "import spey; print(spey.AvailableBackends()); spey.about()"
                   python -c "import spey_roofit; print(spey_roofit.__version__, spey_roofit.manager.version)"
                   python -c "from spey_roofit.combine import combine_modules; combine_modules(); print('combine is importable')"
 
             - name: Run the test suite
-              run: pytest --cov=spey_roofit -q
+              run: pytest --cov --cov-branch --junitxml=junit.xml -o junit_family=legacy --cov-report=xml tests/*py #--cov-fail-under 99
