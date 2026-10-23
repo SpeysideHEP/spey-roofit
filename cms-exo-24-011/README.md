@@ -99,7 +99,9 @@ the ones to compare against the paper.
 ## What uses it
 
 * `validation.ipynb` — section 5: reading the published card, recovering $\hat{x}$,
-  excluding the $\Lambda=12$ TeV hypothesis, scanning the mass points, and
+  excluding the $\Lambda=12$ TeV hypothesis, comparing `spey`'s Brazilian plot and
+  profile likelihood against `RooStats` / `RooFit` on the workspace `text2workspace.py`
+  writes, scanning the mass points, and
   reinterpreting the card with an injected signal.
 * `tests/test_cms.py` — the same checks as a test suite.
 

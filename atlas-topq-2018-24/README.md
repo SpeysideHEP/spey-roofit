@@ -100,7 +100,8 @@ again.
 
 * `validation.ipynb` — the second half: reading the published workspaces,
   recovering the measured signal strength, comparing against the `pyhf` twin,
-  and reinterpreting the dilepton channel with an injected signal.
+  comparing `spey`'s Brazilian plot and profile likelihood against a pure
+  `RooStats` / `RooFit` run on the dilepton document, and reinterpreting the dilepton channel with an injected signal.
 * `tests/test_topq.py` — the same checks as a test suite.
 
 Both degrade gracefully when the material is absent: the tests skip with

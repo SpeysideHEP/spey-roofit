@@ -61,8 +61,10 @@ a single number.
 
 * `validation.ipynb` — sections 4 and 5: reproducing the published
   yields of all 78 regions, recovering the signal strength stored in the
-  post-fit workspace, cross-checking the expected yields against `pyhf`, and
-  injecting a signal into the background-only workspace.
+  post-fit workspace, cross-checking the expected yields against `pyhf`,
+  comparing `spey`'s Brazilian plot and profile likelihood against a pure
+  `RooStats` / `RooFit` run on `sPlusBFit_postFit.root`, and injecting a signal
+  into the background-only workspace.
 * `tests/test_atlas.py` — the same checks as a test suite.
 
 Both degrade gracefully when the material is absent: the tests skip with
