@@ -1,0 +1,125 @@
+name: Check/Build/Deploy
+
+on:
+    release:
+        types: [published]
+    push:
+        branches: ["releases/**"]
+    workflow_dispatch:
+
+jobs:
+    check:
+        name: pytest (python ${{ matrix.python-version }})
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                python-version: ["3.10", "3.12"]
+        defaults:
+            run:
+                shell: bash -el {0}
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set up conda with ROOT
+              uses: conda-incubator/setup-miniconda@v3
+              with:
+                  miniforge-version: latest
+                  python-version: ${{ matrix.python-version }}
+                  channels: conda-forge
+                  auto-activate-base: false
+                  activate-environment: spey-roofit
+
+            - name: Install ROOT and CMS Combine
+              # the CMS Combine backend drives combine itself; both are
+              # conda-forge only, which is why they are not project dependencies
+              run: conda install -y -c conda-forge "root>=6.30" "cms-combine>=10.5"
+
+            - name: Install the package
+              run: |
+                  python -m pip install --upgrade pip
+                  # The Asimov fix of spey 0.2.8 and the WorkspaceInterpreter the HS3
+                  # backend needs are not on PyPI yet. Drop these two lines once
+                  # spey>=0.2.8 and spey-hs3>=0.0.3 are released.
+                  python -m pip install "spey @ git+https://github.com/SpeysideHEP/spey@multipoi-multihisto"
+                  python -m pip install -e ".[dev,validation]"
+
+            - name: Smoke test
+              run: |
+                  python -c "import spey; print(spey.AvailableBackends()); spey.about()"
+                  python -c "import spey_roofit; print(spey_roofit.__version__, spey_roofit.manager.version)"
+                  python -c "from spey_roofit.combine import combine_modules; combine_modules(); print('combine is importable')"
+
+            - name: Run the test suite
+              run: pytest --cov --cov-branch --junitxml=junit.xml -o junit_family=legacy --cov-report=xml tests/*py #--cov-fail-under 99
+
+    build:
+        name: Build wheel and sdist
+        runs-on: ubuntu-latest
+        needs: check
+        steps:
+            - name: Checkout git repository
+              uses: actions/checkout@v4
+
+            - name: Build Spey wheel and sdist
+              run: |
+                  python -m pip install --upgrade pip
+                  python -m pip install wheel build
+                  # produce both sdist and wheel into a known directory and show verbose output
+                  python -m build --sdist --wheel --outdir dist --verbose
+
+            - name: Debug / verify build outputs
+              run: |
+                  echo "Workspace: $(pwd)"
+                  echo "Listing repo root:"
+                  ls -la
+                  echo "Listing dist/ (if any):"
+                  if [ -d dist ]; then
+                    ls -la dist
+                  else
+                    echo "ERROR: ./dist not found after build. Dumping top-level files to help debug:"
+                    find . -maxdepth 2 -type f -print
+                    # fail the job with clear message
+                    exit 1
+                  fi
+
+            - name: Show packaging config
+              run: |
+                  echo "pyproject.toml:"
+                  sed -n '1,200p' pyproject.toml || echo "no pyproject.toml"
+                  echo "setup.cfg:"
+                  sed -n '1,200p' setup.cfg || echo "no setup.cfg"
+                  echo "setup.py:"
+                  sed -n '1,200p' setup.py || echo "no setup.py"
+
+            - name: Upload dist as artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: dist
+                  path: ./dist/
+
+    deploy:
+        if: ${{ !github.event.release.prerelease && !contains(github.ref, '-rc') && !contains(github.ref, '-beta') && !contains(github.ref, '-alpha') }}
+        runs-on: ubuntu-latest
+        needs: build
+        environment:
+            name: pypi
+            url: https://pypi.org/project/spey-roofit/
+        permissions:
+            id-token: write
+        steps:
+            - uses: actions/download-artifact@v4
+              with:
+                  pattern: dist
+                  merge-multiple: true
+                  path: dist
+
+            - name: Debug
+              run: ls -l dist
+
+            - name: Publish package distributions to PyPI
+              uses: pypa/gh-action-pypi-publish@v1.13.0
+              with:
+                  user: ${{ secrets.TWINE_USERNAME }}
+                  password: ${{ secrets.TWINE_PSSWRD }}
+                  verbose: true
