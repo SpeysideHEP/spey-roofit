@@ -1,7 +1,7 @@
 {
-    "description": "RooFit based HS3 plug-in for Spey",
+    "description": "RooFit plug-in for Spey",
     "license": "MIT",
-    "title": "SpeysideHEP/spey-rooths3: v0.0.1",
+    "title": "SpeysideHEP/spey-roofit: v0.0.1",
     "version": "v0.0.1",
     "upload_type": "software",
     "creators": [
@@ -27,12 +27,12 @@
         },
         {
             "scheme": "url",
-            "identifier": "https://github.com/SpeysideHEP/spey-rooths3/tree/v0.0.1",
+            "identifier": "https://github.com/SpeysideHEP/spey-roofit/tree/v0.0.1",
             "relation": "isSupplementTo"
         },
         {
             "scheme": "url",
-            "identifier": "https://spey-rooths3.readthedocs.io/",
+            "identifier": "https://spey-roofit.readthedocs.io/",
             "relation": "isDocumentedBy"
         }
     ]
