@@ -136,7 +136,9 @@ published signal, to be injected again below:
     >>> background.signal_samples, background.poi_parameters
     ({}, [])
 
-``interpreter.patch`` returns the same document as a ``dict`` instead of writing it.
+``interpreter.patch`` returns the same document as a ``dict`` instead of writing it. The ``RooFit`` interpreter
+writes HS3 as well, ``WorkspaceInterpreter(...).save_patch("workspace.json")``, which is how the document above is
+obtained from a ``.root`` workspace without calling ``ROOT`` yourself.
 
 Adding new signal events
 ------------------------

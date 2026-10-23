@@ -104,8 +104,9 @@ Removing the signal and saving the workspace
 --------------------------------------------
 
 ``strip_signal()`` drops every sample that is scaled by a parameter of interest, which turns a signal-plus-background
-workspace into a background-only one. ``save_patch`` writes the result to a new ``.root`` file; the interpreter
-never touches the original.
+workspace into a background-only one. ``save_patch`` writes the result to a new file, a ``RooWorkspace`` in a ``.root``
+file or, with a ``.json`` suffix (or ``fmt="hs3"``), an HS3 document that the :ref:`HS3 backend <sec_hs3>` reads; the
+interpreter never touches the original.
 
 .. code-block:: python3
 
@@ -118,6 +119,8 @@ never touches the original.
 
     >>> interpreter.strip_signal().save_patch("background_only.root")
     'background_only.root'
+    >>> interpreter.save_patch("background_only.json")      # the same model, as an HS3 document
+    'background_only.json'
 
     >>> background = WorkspaceInterpreter("background_only.root")
     >>> background.signal_samples["SR_200_cuts"]

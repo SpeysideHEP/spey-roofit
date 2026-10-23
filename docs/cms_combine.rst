@@ -147,7 +147,9 @@ the table that belong to the signal are removed, and every other directive survi
 
 The ``imax``, ``jmax`` and ``kmax`` counts become wildcards, so that adding or removing a process does not make the card
 disagree with its header. A card whose signal removal would leave a channel without any process raises a
-``ValueError``.
+``ValueError``. With a ``.root`` suffix (or ``fmt="root"``), ``save_patch`` writes the workspace ``combine`` builds
+from the patched card instead; an HS3 document is not possible, because ``combine``'s own classes have no HS3
+serialisation, and ``save_patch`` says so.
 
 Adding new signal events
 ------------------------
