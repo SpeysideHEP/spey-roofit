@@ -73,6 +73,10 @@ def _histogram(name: str, values: Sequence[float]):
     nbins = len(values)
     histogram = ROOT.TH1D(name, name, nbins, 0.0, float(nbins))
     histogram.SetDirectory(0)
+    # HistFactory takes the histogram over (``HistRef`` deletes it with its
+    # sample). Without handing the ownership to C++, ``PyROOT`` deletes it a
+    # second time on garbage collection, which segfaults with ROOT >= 6.40.
+    ROOT.SetOwnership(histogram, False)
     for index, value in enumerate(values):
         histogram.SetBinContent(index + 1, float(value))
     return histogram
