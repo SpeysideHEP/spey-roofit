@@ -1,0 +1,6 @@
+sphinx>=7.0.0
+sphinx-copybutton>=0.3.2
+sphinx-togglebutton>=0.3.0
+sphinx-book-theme
+myst-parser
+myst-nb

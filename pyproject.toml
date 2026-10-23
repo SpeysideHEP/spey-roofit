@@ -30,7 +30,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/SpeysideHEP/spey-roofit"
 Repository = "https://github.com/SpeysideHEP/spey-roofit"
-# Documentation = "https://spey-roofit.readthedocs.io"
+Documentation = "https://spey-roofit.readthedocs.io"
 "Bug Tracker" = "https://github.com/SpeysideHEP/spey-roofit/issues"
 Download = "https://github.com/SpeysideHEP/spey-roofit/releases"
 
