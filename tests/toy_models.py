@@ -24,7 +24,7 @@ extra constraint term enters the likelihood.
 from __future__ import annotations
 
 import os
-from typing import List, Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -86,7 +86,7 @@ def _build(
     path: str,
     name: str,
     background: Sequence[float],
-    signal: Optional[Sequence[float]],
+    signal: Sequence[float] | None,
     data: Sequence[float],
     templates: Sequence[Sequence[float]],
 ) -> str:
@@ -112,7 +112,7 @@ def _build(
     ROOT = _root()
 
     HF = ROOT.RooStats.HistFactory
-    keep: List = []
+    keep: list = []
 
     measurement = HF.Measurement(name, name)
     measurement.SetOutputFilePrefix(os.path.join(path, name))
@@ -166,7 +166,7 @@ def _build(
 def uncorrelated_background_workspace(
     path: str,
     background: Sequence[float],
-    signal: Optional[Sequence[float]],
+    signal: Sequence[float] | None,
     data: Sequence[float],
     uncertainties: Sequence[float],
     name: str = "uncorrelated",
@@ -208,7 +208,7 @@ def uncorrelated_background_workspace(
 def correlated_background_workspace(
     path: str,
     background: Sequence[float],
-    signal: Optional[Sequence[float]],
+    signal: Sequence[float] | None,
     data: Sequence[float],
     covariance: Sequence[Sequence[float]],
     name: str = "correlated",
@@ -251,7 +251,7 @@ def uncorrelated_background_pyhf_workspace(
     signal: Sequence[float],
     data: Sequence[float],
     uncertainties: Sequence[float],
-) -> Tuple[dict, List[dict]]:
+) -> tuple[dict, list[dict]]:
     r"""
     Build the ``pyhf`` twin of ``default.uncorrelated_background``.
 

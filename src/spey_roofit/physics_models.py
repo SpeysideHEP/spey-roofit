@@ -101,9 +101,6 @@ class SwappedTwoHypothesis(_TwoHypotesisHiggs):  # type: ignore[misc, valid-type
 
 
 twoHypothesisHiggs = SwappedTwoHypothesis()
-"""
-The model instance ``text2workspace.py`` expects behind ``-P``.
-
-Select it with
-``physics_model="spey_roofit.physics_models:twoHypothesisHiggs"``.
-"""
+# The model instance ``text2workspace.py`` expects behind ``-P``.
+# Select it with
+# ``physics_model="spey_roofit.physics_models:twoHypothesisHiggs"``.

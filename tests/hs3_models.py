@@ -30,7 +30,8 @@ References
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
@@ -46,7 +47,7 @@ def __dir__():
     return __all__
 
 
-def _axes(channel: str, nbins: int) -> List[Dict[str, Any]]:
+def _axes(channel: str, nbins: int) -> list[dict[str, Any]]:
     """
     Build the axis description of a single-observable channel.
 
@@ -63,13 +64,13 @@ def _axes(channel: str, nbins: int) -> List[Dict[str, Any]]:
 
 def histfactory_document(
     background: Sequence[float],
-    signal: Optional[Sequence[float]],
+    signal: Sequence[float] | None,
     data: Sequence[float],
     templates: Sequence[Sequence[float]] = (),
     channel: str = "ch",
     poi: str = "mu",
     poi_bounds: Sequence[float] = (-10.0, 10.0),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     r"""
     Assemble a single-channel ``histfactory_dist`` HS3 document.
 
@@ -94,9 +95,9 @@ def histfactory_document(
     background = np.asarray(background, dtype=float)
     axes = _axes(channel, background.size)
 
-    modifiers: List[Dict[str, Any]] = []
-    parameters: List[Dict[str, Any]] = []
-    domain_axes: List[Dict[str, Any]] = []
+    modifiers: list[dict[str, Any]] = []
+    parameters: list[dict[str, Any]] = []
+    domain_axes: list[dict[str, Any]] = []
 
     for index, template in enumerate(templates):
         shift = np.asarray(template, dtype=float)
@@ -116,7 +117,7 @@ def histfactory_document(
         parameters.append({"name": name, "value": 0.0})
         domain_axes.append({"name": name, "min": -5.0, "max": 5.0})
 
-    samples: List[Dict[str, Any]] = [
+    samples: list[dict[str, Any]] = [
         {
             "name": "bkg",
             "data": {"contents": background.tolist()},
@@ -178,11 +179,11 @@ def histfactory_document(
 
 def uncorrelated_background_document(
     background: Sequence[float],
-    signal: Optional[Sequence[float]],
+    signal: Sequence[float] | None,
     data: Sequence[float],
     uncertainties: Sequence[float],
     **kwargs: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     r"""
     Build the HS3 twin of ``default.uncorrelated_background``.
 
@@ -216,11 +217,11 @@ def uncorrelated_background_document(
 
 def correlated_background_document(
     background: Sequence[float],
-    signal: Optional[Sequence[float]],
+    signal: Sequence[float] | None,
     data: Sequence[float],
     covariance: Sequence[Sequence[float]],
     **kwargs: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     r"""
     Build the HS3 twin of ``default.correlated_background``.
 
@@ -258,7 +259,7 @@ def poisson_document(
     signal: Sequence[float],
     data: Sequence[float],
     **kwargs: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     r"""
     Build the HS3 twin of ``default.poisson``.
 

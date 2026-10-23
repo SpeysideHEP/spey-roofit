@@ -39,7 +39,7 @@ REGIONS = {
     "CR2e": "Histogram_CR2e",
 }
 PUBLISHED_MU_HAT = 0.12684446636721747
-"""Signal strength stored in the published signal-plus-background workspace."""
+# Signal strength stored in the published signal-plus-background workspace.
 
 
 def _rounding_tolerance(text):
@@ -215,9 +215,9 @@ def test_injected_signal_reproduces_the_published_workspace(
         for index, channel in enumerate(published.channel_names)
         if template[index] > 0.0
     }
-    assert set(signal) == set(
+    assert set(signal) == {
         name for name in published.channel_names if name.startswith("SR")
-    )
+    }
 
     interpreter = WorkspaceInterpreter(atlas_background_only)
     interpreter.inject_signals(signal)

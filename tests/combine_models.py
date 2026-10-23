@@ -33,7 +33,7 @@ exercises the directives that only ``combine`` has — asymmetric ``lnN``,
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Optional, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -65,7 +65,7 @@ def _root():
     return manager.ROOT
 
 
-def _counting_header(channels: Sequence[str], observation: Sequence[float]) -> List[str]:
+def _counting_header(channels: Sequence[str], observation: Sequence[float]) -> list[str]:
     """
     First half of a datacard, up to the ``observation`` line.
 
@@ -88,7 +88,7 @@ def _counting_header(channels: Sequence[str], observation: Sequence[float]) -> L
     ]
 
 
-def _process_block(columns: Sequence[tuple], rates: Sequence[float]) -> List[str]:
+def _process_block(columns: Sequence[tuple], rates: Sequence[float]) -> list[str]:
     """
     The ``bin``/``process``/``rate`` block of a datacard.
 
@@ -114,8 +114,8 @@ def _process_block(columns: Sequence[tuple], rates: Sequence[float]) -> List[str
 def write_templates(
     path: str,
     name: str,
-    histograms: Dict[str, Sequence[float]],
-    errors: Optional[Dict[str, Sequence[float]]] = None,
+    histograms: dict[str, Sequence[float]],
+    errors: dict[str, Sequence[float]] | None = None,
 ) -> str:
     """
     Write a flat ``ROOT`` file of ``TH1D`` templates.
@@ -227,7 +227,7 @@ def log_normal_datacard(
 def uncorrelated_background_datacard(
     path: str,
     background: Sequence[float],
-    signal: Optional[Sequence[float]],
+    signal: Sequence[float] | None,
     data: Sequence[float],
     uncertainties: Sequence[float],
     name: str = "uncorrelated",
@@ -373,7 +373,7 @@ def mixed_datacard(
     lines = _counting_header(channels, data) + _process_block(columns, rates)
     columns_count = len(columns)
 
-    def row(entries: Dict[int, str]) -> str:
+    def row(entries: dict[int, str]) -> str:
         """Render one line of the systematics table."""
         return " ".join(entries.get(index, "-") for index in range(columns_count))
 

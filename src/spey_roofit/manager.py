@@ -201,4 +201,4 @@ class RootManager:
 
 
 manager = RootManager()
-"""Module level :class:`~spey_roofit.manager.RootManager` instance."""
+# Module level :class:`~spey_roofit.manager.RootManager` instance.
