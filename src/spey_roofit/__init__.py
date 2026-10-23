@@ -56,7 +56,7 @@ from .combine import (
 from .combine_interface import CombineInterface
 from .data import ChannelInfo, ConstraintInfo, WorkspaceData
 from .helper_functions import WorkspaceInterpreter, load_workspace
-from .hs3 import compile_workspace, load_document, repair_document
+from .hs3 import compile_workspace, load_document, repair_document, save_workspace
 from .hs3_interface import HS3Interface
 from .interface import RooFitInterface
 from .manager import manager
@@ -80,6 +80,7 @@ __all__ = [
     "patch_datacard",
     "load_document",
     "repair_document",
+    "save_workspace",
     "SwappedTwoHypothesis",
     "manager",
     "__version__",

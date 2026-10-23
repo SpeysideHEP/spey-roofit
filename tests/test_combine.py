@@ -539,6 +539,29 @@ def test_a_reinterpretation_is_saved_with_its_templates(uncorrelated_datacard, t
     assert saved.expected_signal_yields["ch1"] == pytest.approx(other)
 
 
+def test_the_compiled_card_is_saved_as_a_workspace(uncorrelated_datacard, tmp_path):
+    """The compiled model is written as a ``RooWorkspace`` and read back."""
+    path = str(tmp_path / "workspace.root")
+    DatacardInterpreter(uncorrelated_datacard).save_patch(path)
+
+    declared = spey.get_backend("root.cms-combine")(
+        datacard=uncorrelated_datacard, analysis="declared"
+    )
+    saved = spey.get_backend("root.roofit")(workspace=path, analysis="saved")
+    for poi in (0.0, 1.0):
+        assert saved.likelihood(poi_test=poi) == pytest.approx(
+            declared.likelihood(poi_test=poi), abs=1e-4
+        )
+
+
+def test_a_compiled_card_cannot_be_saved_as_hs3(uncorrelated_datacard, tmp_path):
+    """``combine``'s own classes have no HS3 serialisation, and that is reported."""
+    path = tmp_path / "workspace.json"
+    with pytest.raises(OSError, match="HS3"):
+        DatacardInterpreter(uncorrelated_datacard).save_patch(str(path))
+    assert not path.exists()
+
+
 def test_the_two_hypothesis_models_are_mirror_images(tmp_path):
     r"""
     ``spey``'s background is the :math:`x=0` hypothesis, so which of the two

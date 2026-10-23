@@ -18,12 +18,14 @@ and are encoded in the assertions below:
   ``spey`` the Asimov comparisons have to go through ``pyhf`` instead.
 """
 
+import json
+
 import numpy as np
 import pytest
 import spey
 
 from conftest import assert_equal_up_to_constant, likelihood_profile
-from spey_roofit import RooFitInterface, WorkspaceInterpreter
+from spey_roofit import RooFitInterface, WorkspaceInterpreter, load_document
 
 
 @pytest.fixture(name="wrapper", scope="module")
@@ -283,6 +285,52 @@ def test_a_patched_workspace_is_saved_with_its_signal(
     saved = WorkspaceInterpreter(path)
     assert saved.is_alive
     assert saved.expected_signal_yields["ch"] == pytest.approx(toy_yields["signal"])
+
+
+def test_a_workspace_is_saved_as_hs3_and_read_back(
+    uncorrelated_workspace, toy_yields, uncorrelated, tmp_path
+):
+    """The HS3 export of a workspace is the same model once ``root.hs3`` reads it."""
+    roofit, _ = uncorrelated
+    path = str(tmp_path / "workspace.json")
+    WorkspaceInterpreter(uncorrelated_workspace).save_patch(path)
+
+    document = json.load(open(path, encoding="utf-8"))
+    assert document["distributions"]
+
+    hs3 = spey.get_backend("root.hs3")(workspace=path, analysis="roundtrip")
+    for poi in (0.0, 1.0, 2.0):
+        assert hs3.likelihood(poi_test=poi) == pytest.approx(
+            roofit.likelihood(poi_test=poi), abs=1e-6
+        )
+
+
+def test_a_stripped_workspace_is_saved_as_hs3(
+    wrapper, uncorrelated_workspace, toy_yields, tmp_path
+):
+    """Stripping before the export leaves a document without signal."""
+    path = str(tmp_path / "background_only.json")
+    WorkspaceInterpreter(uncorrelated_workspace).strip_signal().save_patch(path)
+
+    # the patched pdfs carry a suffix, so ask the document what they are called
+    from spey_hs3.helper_functions import WorkspaceInterpreter as HS3Interpreter
+
+    (distribution,) = HS3Interpreter(load_document(path)).bin_map
+    model = spey.get_backend("root.hs3")(
+        workspace=path,
+        signal_yields={distribution: toy_yields["signal"]},
+        analysis="stripped-hs3",
+    )
+    assert model.backend.is_alive
+
+
+def test_the_save_format_is_validated(background_only_workspace, tmp_path):
+    """An unknown suffix is reported instead of guessed."""
+    interpreter = WorkspaceInterpreter(background_only_workspace)
+    with pytest.raises(ValueError, match="format"):
+        interpreter.save_patch(str(tmp_path / "workspace.txt"))
+    explicit = interpreter.save_patch(str(tmp_path / "workspace.dat"), fmt="root")
+    assert WorkspaceInterpreter(explicit).channels == interpreter.channels
 
 
 def test_agrees_with_spey_pyhf(uncorrelated, toy_yields, pyhf_backend):

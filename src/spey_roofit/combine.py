@@ -1465,9 +1465,9 @@ class DatacardInterpreter:
         """
         return self.workspace()[0]
 
-    def save_patch(self, path: str | os.PathLike) -> str:
+    def save_patch(self, path: str | os.PathLike, fmt: str | None = None) -> str:
         """
-        Write the patched datacard to a file.
+        Write the patched model to a datacard, a ``ROOT`` file or an HS3 document.
 
         Combined with :meth:`strip_signal`, this turns a card that declares a
         signal into a background-only one; combined with :meth:`inject_signal`,
@@ -1476,13 +1476,26 @@ class DatacardInterpreter:
         the saved card keeps working wherever it is moved to, and the
         templates of an injected signal are copied next to it.
 
+        The compiled workspace can be saved instead, as a ``RooWorkspace`` in
+        a ``ROOT`` file or as an HS3 ``JSON`` document, which ``combine`` is
+        then no longer needed to read.
+
         Args:
-            path (``Union[str, os.PathLike]``): destination of the card, e.g.
+            path (``Union[str, os.PathLike]``): destination, e.g.
               ``"background_only.txt"``. An existing file is overwritten.
+            fmt (``str``, default ``None``): ``"card"`` for a datacard,
+              ``"root"`` for a ``RooWorkspace`` or ``"hs3"`` for an HS3
+              document. Taken from the suffix of ``path`` when omitted:
+              ``.root`` and ``.json`` select the workspace formats, anything
+              else the datacard.
+
+        Raises:
+            ``ValueError``: if ``fmt`` is unknown.
+            ``OSError``: if a workspace cannot be written.
 
         Returns:
             ``str``:
-            The path the card was written to.
+            The path the model was written to.
 
         Example:
 
@@ -1491,6 +1504,17 @@ class DatacardInterpreter:
             >>> interpreter = DatacardInterpreter("chi_datacard.txt")
             >>> interpreter.strip_signal().save_patch("background_only.txt")
         """
+        suffix = os.path.splitext(os.fspath(path))[1].lower()
+        fmt = fmt or {".root": "root", ".json": "hs3"}.get(suffix, "card")
+        fmt = {"json": "hs3"}.get(fmt, fmt)
+        if fmt not in ("card", "root", "hs3"):
+            raise ValueError(f"Unknown format '{fmt}'; use 'card', 'root' or 'hs3'.")
+        if fmt != "card":
+            from .hs3 import save_workspace
+
+            save_workspace(self.patch, path, fmt)
+            return os.fspath(path)
+
         path = os.path.abspath(str(path))
         text, base = patch_datacard(
             self._text,

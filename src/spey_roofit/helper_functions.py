@@ -28,12 +28,14 @@ leaves every other component of the workspace untouched.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterable, Sequence
 from typing import Any
 
 import numpy as np
 
 from .data import ChannelInfo, read_counts, resolve_channels
+from .hs3 import save_workspace
 from .manager import manager
 
 __all__ = ["WorkspaceInterpreter", "load_workspace"]
@@ -760,9 +762,9 @@ class WorkspaceInterpreter:
             return self._workspace
         return self._build_patch()
 
-    def save_patch(self, path: str) -> str:
+    def save_patch(self, path: str | os.PathLike, fmt: str | None = None) -> str:
         """
-        Write the patched workspace to a ``ROOT`` file.
+        Write the patched workspace to a ``ROOT`` file or to an HS3 document.
 
         Combined with :meth:`strip_signal`, this turns a signal-plus-background
         workspace into a background-only one that can be shared and reused
@@ -770,11 +772,17 @@ class WorkspaceInterpreter:
         :meth:`inject_signal`, it stores a reinterpretation.
 
         Args:
-            path (``str``): destination, e.g. ``"background_only.root"``. An
+            path (``Union[str, os.PathLike]``): destination, e.g.
+              ``"background_only.root"`` or ``"background_only.json"``. An
               existing file is overwritten.
+            fmt (``str``, default ``None``): ``"root"`` for a ``RooWorkspace``
+              in a ``ROOT`` file, ``"hs3"`` for an HS3 ``JSON`` document,
+              which ``root.hs3`` and ``spey-hs3`` read. Taken from the suffix
+              of ``path`` when omitted.
 
         Raises:
-            ``IOError``: if the file cannot be written.
+            ``ValueError``: if the format cannot be told.
+            ``OSError``: if the file cannot be written.
 
         Returns:
             ``str``:
@@ -786,11 +794,9 @@ class WorkspaceInterpreter:
 
             >>> interpreter = WorkspaceInterpreter("sPlusBFit_postFit.root")
             >>> interpreter.strip_signal().save_patch("background_only.root")
+            >>> interpreter.save_patch("background_only.json")   # the same, as HS3
         """
-        workspace = self.patch
-        if workspace.writeToFile(str(path), True):  # returns True on error
-            raise OSError(f"Cannot write the workspace to '{path}'.")
-        log.info("Patched workspace saved to '%s'.", path)
+        save_workspace(self.patch, path, fmt)
         return path
 
     # ------------------------------------------------------------------ #

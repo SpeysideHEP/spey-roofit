@@ -47,6 +47,7 @@ __all__ = [
     "load_document",
     "repair_document",
     "resolve_model_config",
+    "save_workspace",
 ]
 
 
@@ -59,7 +60,7 @@ log = logging.getLogger("Spey")
 # pylint: disable=invalid-name
 
 #: Anything :func:`load_document` accepts: a parsed document, a path, or JSON text.
-DocumentLike = Union[str, bytes, os.PathLike, Dict[str, Any]]
+DocumentLike = Union[str, bytes, os.PathLike, dict[str, Any]]
 
 #: Distribution types whose ``x`` key :func:`repair_document` is able to restore.
 _CONSTRAINT_TYPES = ("gaussian_dist", "poisson_dist", "lognormal_dist")
@@ -104,7 +105,7 @@ def _quiet():
         os.close(saved)
 
 
-def load_document(source: DocumentLike) -> Dict[str, Any]:
+def load_document(source: DocumentLike) -> dict[str, Any]:
     """
     Read an HS3 document.
 
@@ -147,7 +148,7 @@ def load_document(source: DocumentLike) -> Dict[str, Any]:
     raise ValueError(f"'{source}' is not an existing file and is not JSON.")
 
 
-def _declared_parameters(document: Dict[str, Any]) -> set:
+def _declared_parameters(document: dict[str, Any]) -> set:
     """
     Collect every parameter name the document declares.
 
@@ -170,7 +171,7 @@ def _declared_parameters(document: Dict[str, Any]) -> set:
     return names
 
 
-def _strip(name: str, affixes: Tuple[str, ...], prefix: bool = False) -> Optional[str]:
+def _strip(name: str, affixes: tuple[str, ...], prefix: bool = False) -> str | None:
     """
     Remove the first matching affix from ``name``.
 
@@ -192,8 +193,8 @@ def _strip(name: str, affixes: Tuple[str, ...], prefix: bool = False) -> Optiona
 
 
 def repair_document(
-    document: Dict[str, Any], inplace: bool = False
-) -> Tuple[Dict[str, Any], List[str]]:
+    document: dict[str, Any], inplace: bool = False
+) -> tuple[dict[str, Any], list[str]]:
     r"""
     Restore the ``x`` key of constraint distributions that are missing it.
 
@@ -225,7 +226,7 @@ def repair_document(
         document = json.loads(json.dumps(document))
 
     declared = _declared_parameters(document)
-    repaired: List[str] = []
+    repaired: list[str] = []
     for distribution in document.get("distributions", []) or []:
         if distribution.get("type") not in _CONSTRAINT_TYPES:
             continue
@@ -233,9 +234,9 @@ def repair_document(
             continue
         name = distribution.get("name", "<unnamed>")
 
-        candidates: List[str] = []
+        candidates: list[str] = []
 
-        def propose(value: Optional[str]) -> None:
+        def propose(value: str | None) -> None:
             """Add ``value`` and its capitalised form to the candidate list."""
             if not value:
                 return
@@ -274,12 +275,120 @@ def repair_document(
     return document, repaired
 
 
+@contextmanager
+def _captured_stderr():
+    """
+    Collect what ``ROOT`` writes to the standard error descriptor.
+
+    Yields:
+        ``Callable[[], List[str]]``:
+        Function returning the captured lines; call it after the block.
+    """
+    import tempfile
+
+    captured: list[str] = []
+    sys.stderr.flush()
+    with tempfile.TemporaryFile(mode="w+") as sink:
+        try:
+            saved = os.dup(2)
+        except OSError:  # pragma: no cover - environment dependent
+            yield lambda: captured
+            return
+        os.dup2(sink.fileno(), 2)
+        try:
+            yield lambda: captured
+        finally:
+            os.dup2(saved, 2)
+            os.close(saved)
+            sink.seek(0)
+            captured.extend(sink.read().splitlines())
+
+
+#: File formats :func:`save_workspace` writes, by name and by file suffix.
+_SAVE_FORMATS = {".root": "root", ".json": "hs3"}
+
+
+def save_workspace(
+    workspace: Any, path: str | os.PathLike, fmt: str | None = None
+) -> str:
+    """
+    Write a ``RooFit`` workspace to a ``ROOT`` file or to an HS3 document.
+
+    The file is written through a ``TFile`` and checked on disk afterwards,
+    rather than trusting ``RooWorkspace::writeToFile``, whose return value has
+    meant success in some ``ROOT`` versions and failure in others.
+
+    An HS3 export from ``ROOT`` 6.36 misses the ``x`` key of the Gaussian
+    constraints, which makes the document unreadable; it is restored with
+    :func:`repair_document` before the file is finished, so that the result
+    follows the standard.
+
+    Args:
+        workspace (``ROOT.RooWorkspace``): the workspace to write.
+        path (``Union[str, os.PathLike]``): destination. An existing file is
+          overwritten.
+        fmt (``str``, default ``None``): ``"root"`` or ``"hs3"``. Taken from the
+          suffix of ``path`` (``.root`` or ``.json``) when omitted.
+
+    Raises:
+        ``ValueError``: if the format is unknown or cannot be told from the
+          suffix.
+        ``OSError``: if the file cannot be written.
+
+    Returns:
+        ``str``:
+        ``path``, as given.
+    """
+    path = os.fspath(path)
+    if fmt is None:
+        fmt = _SAVE_FORMATS.get(os.path.splitext(path)[1].lower())
+    fmt = {"json": "hs3"}.get(fmt, fmt)
+    if fmt not in ("root", "hs3"):
+        raise ValueError(
+            f"Cannot tell the format of '{path}': use a .root or .json suffix, or "
+            f"pass fmt='root' or fmt='hs3'."
+        )
+    ROOT = manager.ROOT
+
+    if os.path.exists(path):
+        os.remove(path)
+    if fmt == "root":
+        handle = ROOT.TFile.Open(path, "RECREATE")
+        if not handle or handle.IsZombie():
+            raise OSError(f"Cannot open '{path}' for writing.")
+        workspace.Write()
+        handle.Close()
+    else:
+        with _captured_stderr() as messages:
+            with _quiet():
+                ROOT.RooJSONFactoryWSTool(workspace).exportJSON(path)
+        # the exporter reports a class it cannot serialise on ``stderr`` and
+        # still returns success, leaving a document ``ROOT`` cannot read back
+        failure = [line for line in messages() if "unable to export" in line]
+        if failure:
+            if os.path.isfile(path):
+                os.remove(path)
+            raise OSError(
+                f"The workspace cannot be written as HS3: {failure[0].strip()}. Save "
+                f"it as a ROOT file instead."
+            )
+        if os.path.isfile(path):
+            document, _ = repair_document(load_document(path))
+            with open(path, "w", encoding="utf-8") as stream:
+                json.dump(document, stream, indent=2)
+
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        raise OSError(f"Cannot write the workspace to '{path}'.")
+    log.info("Workspace saved to '%s'.", path)
+    return path
+
+
 #: Name of the domain the ``ROOT`` reader falls back to for any parameter that
 #: the analysis does not otherwise give a range for.
 DEFAULT_DOMAIN = "default_domain"
 
 
-def ensure_default_domain(document: Dict[str, Any]) -> bool:
+def ensure_default_domain(document: dict[str, Any]) -> bool:
     """
     Make sure the document carries a domain named ``default_domain``.
 
@@ -306,7 +415,7 @@ def ensure_default_domain(document: Dict[str, Any]) -> bool:
     if any(domain.get("name") == DEFAULT_DOMAIN for domain in domains):
         return False
 
-    axes: Dict[str, Dict[str, Any]] = {}
+    axes: dict[str, dict[str, Any]] = {}
     for domain in domains:
         for axis in domain.get("axes", []) or []:
             name = axis.get("name")
@@ -329,7 +438,7 @@ def ensure_default_domain(document: Dict[str, Any]) -> bool:
     return True
 
 
-def resolve_model_config(workspace: Any, model_config_name: Optional[str] = None) -> Any:
+def resolve_model_config(workspace: Any, model_config_name: str | None = None) -> Any:
     """
     Locate the ``RooStats::ModelConfig`` of a compiled workspace.
 
@@ -389,7 +498,7 @@ def resolve_model_config(workspace: Any, model_config_name: Optional[str] = None
     return available[0]
 
 
-def complete_model_config(workspace: Any, model_config: Any) -> List[str]:
+def complete_model_config(workspace: Any, model_config: Any) -> list[str]:
     r"""
     Declare the global observables the HS3 reader left out.
 
@@ -447,7 +556,7 @@ def complete_model_config(workspace: Any, model_config: Any) -> List[str]:
             and name not in observable_names
         )
 
-    found: Dict[str, Any] = {}
+    found: dict[str, Any] = {}
     for component in pdf.getComponents():
         if not component.InheritsFrom("RooAbsPdf"):
             continue
@@ -500,10 +609,10 @@ def complete_model_config(workspace: Any, model_config: Any) -> List[str]:
 def compile_workspace(
     document: DocumentLike,
     workspace_name: str = "hs3_workspace",
-    model_config_name: Optional[str] = None,
+    model_config_name: str | None = None,
     repair: bool = True,
     complete: bool = True,
-) -> Tuple[Any, Any]:
+) -> tuple[Any, Any]:
     """
     Build a ``RooFit`` workspace from an HS3 document.
 
@@ -573,10 +682,10 @@ def compile_workspace(
 
 
 def ensure_parameter(
-    document: Dict[str, Any],
+    document: dict[str, Any],
     name: str,
     value: float = 1.0,
-    bounds: Tuple[float, float] = (-10.0, 10.0),
+    bounds: tuple[float, float] = (-10.0, 10.0),
 ) -> bool:
     r"""
     Make sure a parameter is declared with a value and a range.
