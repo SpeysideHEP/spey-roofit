@@ -78,14 +78,13 @@ class CombineInterface(RooFitBackendBase):
     the model is compiled by ``combine``.
 
     Args:
-        datacard (``Union[str, os.PathLike,
-          ~spey_roofit.combine.DatacardInterpreter]``): the model. A ``str`` is
+        datacard (``Union[str, DatacardInterpreter]``): the model. A ``str`` is
           read as the path of a ``.txt`` datacard, or as the card itself when
           it is not a path. An interpreter is used as it is, together with
           whatever mutations have already been queued on it.
-        signal_yields (``Dict[str, Union[float, Sequence[float]]]``, default
-          ``None``): per-channel signal yields to inject, ``{channel: [y_1,
-          ..., y_n]}`` with one entry per bin of the channel. Use
+        signal_yields (``Dict[str, Sequence[float]]``, default ``None``):
+          per-channel signal yields to inject, ``{channel: [y_1, ..., y_n]}``
+          with one entry per bin of the channel. Use
           :attr:`~spey_roofit.combine.DatacardInterpreter.bin_map` to discover
           the expected shape. Nothing is injected when omitted.
         mass (``Union[int, float]``, default ``0.0``): value substituted for
@@ -146,11 +145,10 @@ class CombineInterface(RooFitBackendBase):
 
     .. note::
 
-        ``combine`` writes its Gaussian constraints without the
-        :math:`1/\sqrt{2\pi}` of each term, so absolute log-likelihood values
-        follow ``combine``'s normalisation rather than ``spey``'s. The offset
-        is constant and is calibrated away once per dataset, and every
-        likelihood ratio is unaffected in any case.
+        The log-likelihood is ``RooFit``'s own, returned as :math:`-\mathrm{NLL}`
+        without any rescaling, so absolute values follow the normalisation of the
+        compiled workspace rather than that of another ``spey`` backend. Every
+        likelihood ratio, fit and limit is unaffected.
     """
 
     name: str = "root.cms-combine"

@@ -23,7 +23,8 @@ References
 from __future__ import annotations
 
 import logging
-from typing import Callable, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
+from collections.abc import Callable
 
 import numpy as np
 from spey.base import ModelConfig
@@ -54,13 +55,12 @@ class RooFitBackendBase(BackendBase):
 
     .. note::
 
-        ``RooFit`` and ``spey`` normalise the log-likelihood differently:
-        ``RooFit`` adds data dependent, parameter independent terms such as the
-        category normalisation of a ``RooSimultaneous``. The offset is
-        calibrated away once per dataset by
-        :class:`~spey_roofit.data.WorkspaceData`, so that
-        :func:`~spey.StatisticalModel.likelihood` returns the same value as any
-        other ``spey`` backend for the same model.
+        The log-likelihood is ``RooFit``'s own, returned as :math:`-\mathrm{NLL}`
+        without any rescaling. ``RooFit`` adds data dependent, parameter
+        independent terms such as the category normalisation of a
+        ``RooSimultaneous``, so absolute values are not comparable with those of
+        another ``spey`` backend for the same model, whereas likelihood ratios,
+        fits and limits are unaffected.
     """
 
     __slots__ = ["_model", "_minimum_poi", "_template"]
@@ -150,7 +150,7 @@ class RooFitBackendBase(BackendBase):
     def get_logpdf_func(
         self,
         expected: ExpectationType = ExpectationType.observed,
-        data: Optional[Union[List[float], np.ndarray]] = None,
+        data: list[float] | np.ndarray | None = None,
     ) -> Callable[[np.ndarray], float]:
         r"""
         Build the function computing :math:`\log\mathcal{L}(\mu,\theta)`.
@@ -180,7 +180,7 @@ class RooFitBackendBase(BackendBase):
         """
         return self._model.logpdf_func(self._resolve_data(expected, data))
 
-    def expected_data(self, pars: List[float]) -> List[float]:
+    def expected_data(self, pars: list[float]) -> list[float]:
         r"""
         Asimov data at a given parameter point.
 
@@ -293,7 +293,7 @@ class RooFitBackendBase(BackendBase):
             log.debug("Minimum POI set to %s", self._minimum_poi)
         return self._minimum_poi
 
-    def _background_and_signal(self) -> Tuple[np.ndarray, np.ndarray]:
+    def _background_and_signal(self) -> tuple[np.ndarray, np.ndarray]:
         r"""
         Expected background and signal templates at nominal nuisances.
 
@@ -334,7 +334,7 @@ class RooFitBackendBase(BackendBase):
     def _resolve_data(
         self,
         expected: ExpectationType,
-        data: Optional[Union[List[float], np.ndarray]],
+        data: list[float] | np.ndarray | None,
     ) -> np.ndarray:
         """
         Pick the data vector a likelihood should be built for.

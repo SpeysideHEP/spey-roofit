@@ -12,7 +12,7 @@ authors = [
     {name = "Jack Y. Araz", email = "j.araz@ucl.ac.uk"},
 ]
 requires-python = ">=3.10, <3.15"
-dependencies = ["spey>=0.2.6", "spey-hs3>=0.0.3", "numpy>=1.24", "scipy>=1.10"]
+dependencies = ["spey>=0.2.6", "spey-hs3>=0.0.3", "numpy>=1.24"]
 classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
@@ -30,7 +30,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/SpeysideHEP/spey-roofit"
 Repository = "https://github.com/SpeysideHEP/spey-roofit"
-Documentation = "https://spey-roofit.readthedocs.io"
+# Documentation = "https://spey-roofit.readthedocs.io"
 "Bug Tracker" = "https://github.com/SpeysideHEP/spey-roofit/issues"
 Download = "https://github.com/SpeysideHEP/spey-roofit/releases"
 
@@ -44,6 +44,7 @@ dev = [
 validation = [
     "spey-pyhf>=0.2.0",
     "matplotlib>=3.7",
+    "scipy>=1.10",
 ]
 
 [project.entry-points."spey.backend.plugins"]

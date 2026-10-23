@@ -38,14 +38,15 @@ from __future__ import annotations
 
 import copy
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
+from collections.abc import Sequence
 
 import numpy as np
 
 from ._version import __version__
 from .base import RooFitBackendBase
 from .data import WorkspaceData
-from .hs3 import compile_workspace, ensure_parameter, load_document
+from .hs3 import compile_workspace, ensure_parameter, load_document, repair_document
 
 __all__ = ["HS3Interface"]
 
@@ -116,9 +117,9 @@ def _interpreter_class():
 
 
 def normalise_signal_yields(
-    signal_yields: Dict[str, Union[Sequence[float], Dict[str, Any]]],
+    signal_yields: dict[str, Sequence[float] | dict[str, Any]],
     sample_name: str = DEFAULT_SAMPLE_NAME,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     r"""
     Bring user supplied signal yields into the shape ``spey-hs3`` expects.
 
@@ -149,7 +150,7 @@ def normalise_signal_yields(
         ``Dict[str, Dict[str, Any]]``:
         Mapping ``{distribution: {sample: specification}}``.
     """
-    normalised: Dict[str, Dict[str, Any]] = {}
+    normalised: dict[str, dict[str, Any]] = {}
     for distribution, specification in signal_yields.items():
         if isinstance(specification, dict):
             if "contents" in specification:
@@ -180,13 +181,12 @@ class HS3Interface(RooFitBackendBase):
     parameter of interest.
 
     Args:
-        workspace (``Union[str, os.PathLike, Dict, spey_hs3.WorkspaceInterpreter]``):
+        workspace (``Union[str, Dict, WorkspaceInterpreter]``):
           the model. A ``str`` is read as a path to a ``.json`` file, or as the
           document itself when it is ``JSON``. An interpreter is used as it is,
           together with whatever mutations have already been queued on it.
-        signal_yields (``Dict[str, Union[Sequence[float], Dict]]``, default
-          ``None``): per-distribution signal yields to inject, with one entry
-          per bin. Use
+        signal_yields (``Dict[str, Sequence[float]]``, default ``None``):
+          per-distribution signal yields to inject, with one entry per bin. Use
           :attr:`~spey_hs3.helper_functions.WorkspaceInterpreter.bin_map` to
           discover the expected shape. Nothing is injected when omitted.
         poi_name (``str``, default ``None``): name of the parameter of
@@ -241,8 +241,10 @@ class HS3Interface(RooFitBackendBase):
     .. note::
 
         The compiled workspace is kept alive for as long as the backend exists
-        and is reachable through :attr:`workspace`; the document it was built
-        from, with every mutation applied, is available as :attr:`document`.
+        and is reachable through
+        :attr:`~spey_roofit.hs3_interface.HS3Interface.workspace`; the document
+        it was built from, with every mutation applied, is available as
+        :attr:`~spey_roofit.hs3_interface.HS3Interface.document`.
     """
 
     name: str = "root.hs3"
@@ -253,20 +255,20 @@ class HS3Interface(RooFitBackendBase):
     """Author of the backend"""
     spey_requires: str = ">=0.2.0"
     """Spey version required for the backend"""
-    arXiv: List[str] = ["physics/0306116", "1009.1003"]
+    arXiv: list[str] = ["physics/0306116", "1009.1003"]
     """arXiv references: the RooFit toolkit and the RooStats project"""
 
     __slots__ = ["_interpreter", "_document", "_workspace", "_signal_yields"]
 
     def __init__(
         self,
-        workspace: Union[str, Dict[str, Any], Any],
-        signal_yields: Optional[Dict[str, Union[Sequence[float], Dict[str, Any]]]] = None,
-        poi_name: Optional[str] = None,
+        workspace: str | dict[str, Any] | Any,
+        signal_yields: dict[str, Sequence[float] | dict[str, Any]] | None = None,
+        poi_name: str | None = None,
         sample_name: str = DEFAULT_SAMPLE_NAME,
-        poi_bounds: Tuple[float, float] = (-10.0, 10.0),
-        model_config_name: Optional[str] = None,
-        data_name: Optional[str] = None,
+        poi_bounds: tuple[float, float] = (-10.0, 10.0),
+        model_config_name: str | None = None,
+        data_name: str | None = None,
         strip_existing_signal: bool = False,
         strict_cache_flush: bool = True,
         repair: bool = True,
@@ -276,12 +278,19 @@ class HS3Interface(RooFitBackendBase):
         if isinstance(workspace, WorkspaceInterpreter):
             interpreter = workspace
         else:
-            interpreter = WorkspaceInterpreter(load_document(workspace))
+            document = load_document(workspace)
+            if repair:
+                # before the interpreter sees the document: a constraint without
+                # its ``x`` key looks like a reference to nothing, so stripping the
+                # signal would prune the parameters that only the signal uses and
+                # leave their constraints pointing at parameters that are gone
+                document, _ = repair_document(document)
+            interpreter = WorkspaceInterpreter(document)
 
         if strip_existing_signal:
             interpreter.strip_signal()
 
-        normalised: Dict[str, Dict[str, Any]] = {}
+        normalised: dict[str, dict[str, Any]] = {}
         if signal_yields:
             normalised = normalise_signal_yields(signal_yields, sample_name)
             declared = interpreter.poi_parameters
@@ -296,7 +305,7 @@ class HS3Interface(RooFitBackendBase):
         document = _document_of(interpreter)
         if poi is not None:
             ensure_parameter(document, poi, value=1.0, bounds=poi_bounds)
-        self._document: Dict[str, Any] = document
+        self._document: dict[str, Any] = document
 
         self._workspace, model_config = compile_workspace(
             document,
@@ -310,8 +319,8 @@ class HS3Interface(RooFitBackendBase):
             poi_name=poi,
             strict_cache_flush=strict_cache_flush,
         )
-        self._minimum_poi: Optional[float] = None
-        self._template: Optional[Tuple[np.ndarray, np.ndarray]] = None
+        self._minimum_poi: float | None = None
+        self._template: tuple[np.ndarray, np.ndarray] | None = None
 
     # ------------------------------------------------------------------ #
     # Accessors                                                           #
@@ -329,7 +338,7 @@ class HS3Interface(RooFitBackendBase):
         return self._interpreter
 
     @property
-    def document(self) -> Dict[str, Any]:
+    def document(self) -> dict[str, Any]:
         """
         The HS3 document the workspace was compiled from.
 
@@ -374,7 +383,7 @@ def _has_mutations(interpreter: Any) -> bool:
     )
 
 
-def _document_of(interpreter: Any) -> Dict[str, Any]:
+def _document_of(interpreter: Any) -> dict[str, Any]:
     """
     Extract the document an interpreter describes, with its mutations applied.
 

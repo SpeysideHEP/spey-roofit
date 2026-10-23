@@ -14,22 +14,24 @@ backend:
   the global observables.
 
 The log-likelihood is evaluated by ``RooFit`` itself through
-``RooAbsPdf::createNLL``. ``RooFit`` and ``spey`` do not use the same additive
-normalisation for the likelihood: ``RooFit`` adds terms that depend only on the
-data (the category normalisation of a ``RooSimultaneous``, bin volumes, ...),
-whereas ``spey`` — like ``pyhf`` — uses
+``RooAbsPdf::createNLL`` and is returned as :math:`-\mathrm{NLL}`, with
+``RooFit``'s bin-by-bin offset, ``RooFit::Offset("bin")``, switched on: no model
+specific assumption about the form of the likelihood is made.
 
-.. math::
+The offset subtracts from every bin the likelihood of a template that matches
+the data exactly, *inside* ``RooFit`` and before the bins are summed. Without it
+``RooFit``'s NLL carries additive terms that depend only on the data (the
+category normalisation of a ``RooSimultaneous``, bin volumes, the omitted
+:math:`\log\Gamma(n+1)` of an extended term, ...), which reach :math:`10^7` on
+published models with many channels. A double then resolves the likelihood only
+to :math:`\sim 10^{-9}`, and the finite-difference gradients ``spey``'s
+optimisers rely on lose their first significant digit. With the offset the
+value is of the order of the deviance and keeps its full precision.
 
-    \log\mathcal{L}(\mu,\theta) =
-        \sum_{i\in\rm bins}\log{\rm Pois}(n_i\vert\lambda_i(\mu,\theta)) +
-        \sum_{c\in\rm constraints}\log p_c(a_c\vert\theta)\ .
-
-:class:`~spey_roofit.data.WorkspaceData` therefore *calibrates* the ``RooFit``
-negative log-likelihood against the expression above once per dataset. The
-calibration constant is validated at two independent parameter points, so a
-genuine parameter dependence — which would invalidate the procedure — is
-detected and reported rather than silently absorbed.
+The offset depends on the data alone, never on the parameters, so every
+likelihood ratio, and therefore every fit, profile, test statistic and
+exclusion limit, is unaffected. The absolute value is *not* comparable with that
+of another implementation of the same likelihood, nor between two data vectors.
 
 References
 ~~~~~~~~~~
@@ -45,7 +47,6 @@ from typing import Any
 from collections.abc import Callable, Sequence
 
 import numpy as np
-from scipy.special import gammaln
 
 from .manager import manager
 
@@ -67,7 +68,7 @@ log = logging.getLogger("Spey")
 # pylint: disable=too-many-instance-attributes, too-many-locals, invalid-name
 
 _EXCLUDED_OBSERVABLES = frozenset({"weightVar"})
-"""Names of bookkeeping variables that ``HistFactory`` stores in the observable set."""
+# Names of bookkeeping variables that ``HistFactory`` stores in the observable set.
 
 
 @dataclass
@@ -132,13 +133,11 @@ class ConstraintInfo:
 
 @dataclass
 class _NLLRecord:
-    """Internal container pairing a ``RooFit`` NLL with its calibration."""
+    """Internal container holding a ``RooFit`` NLL and the data it was built for."""
 
     nll: Any
     dataset: Any
-    offset: float
     global_observables: np.ndarray
-    residual: float = 0.0
     keep: list[Any] = field(default_factory=list)
 
 
@@ -169,9 +168,6 @@ class WorkspaceData:
           term optimisation is active, may return a stale value after the
           parameters have been changed from Python. The flush removes that
           failure mode at a negligible cost.
-        calibration_tolerance (``float``, default ``1e-6``): largest relative
-          deviation between the calibration constants obtained at two different
-          parameter points before a warning is issued.
         max_cached_likelihoods (``int``, default ``16``): how many ``RooFit``
           negative log-likelihood objects to keep alive. A new one is built for
           every distinct data vector, and ``spey`` produces one Asimov dataset
@@ -204,7 +200,6 @@ class WorkspaceData:
         "index_category",
         "channels",
         "constraints",
-        "_constraint_terms",
         "poi",
         "nuisance_parameters",
         "global_observables",
@@ -221,7 +216,6 @@ class WorkspaceData:
         "_dataset_counter",
         "_observed_counts",
         "_strict_cache_flush",
-        "_calibration_tolerance",
         "_max_cached_likelihoods",
     ]
 
@@ -232,13 +226,11 @@ class WorkspaceData:
         data_name: str | None = None,
         poi_name: str | None = None,
         strict_cache_flush: bool = True,
-        calibration_tolerance: float = 1e-6,
         max_cached_likelihoods: int = 16,
     ):
         ROOT = manager.ROOT
 
         self._strict_cache_flush = bool(strict_cache_flush)
-        self._calibration_tolerance = float(calibration_tolerance)
         self._max_cached_likelihoods = max(1, int(max_cached_likelihoods))
         self._nll_cache: dict[bytes, _NLLRecord] = {}
         self._dataset_counter: int = 0
@@ -264,9 +256,6 @@ class WorkspaceData:
 
         self.poi = self._resolve_poi(poi_name)
         self.nuisance_parameters = self._resolve_nuisance_parameters()
-        # Resolved once the floating parameters are known: a constraint term is
-        # only relevant if the parameter it constrains actually floats.
-        self._constraint_terms = self._resolve_constraint_terms()
         self._parameter_objects = [self.poi] + list(self.nuisance_parameters)
 
         self.global_observables = [cst.global_observable for cst in self.constraints]
@@ -456,69 +445,6 @@ class WorkspaceData:
             return None
         floating = [srv for srv in candidates if not srv.isConstant()]
         return floating[0] if floating else candidates[0]
-
-    def _resolve_constraint_terms(self) -> list[Any]:
-        r"""
-        Collect every constraint factor of the model and its normalisation set.
-
-        :meth:`_resolve_constraints` only keeps the terms attached to a
-        declared global observable, because those are the ones that define the
-        auxiliary data vector. The likelihood, however, also contains
-        constraints on parameters for which the workspace declares no global
-        observable — a floating luminosity is the typical example. Those terms
-        are picked up here so that :meth:`reference_logpdf` reproduces the full
-        ``RooFit`` likelihood.
-
-        A constraint is any factor of a channel's ``RooProdPdf`` that does not
-        depend on the observables of that channel.
-
-        Returns:
-            ``List[Tuple[ROOT.RooAbsPdf, ROOT.RooArgSet]]``:
-            Pairs of constraint pdf and the set it has to be normalised over.
-        """
-        ROOT = manager.ROOT
-
-        declared = self.model_config.GetGlobalObservables()
-        global_names = {gob.GetName() for gob in declared} if declared else set()
-
-        terms: dict[str, Any] = {
-            constraint.pdf.GetName(): (constraint.pdf, constraint.norm_set)
-            for constraint in self.constraints
-        }
-
-        def visit(factor: Any, observables: Any) -> None:
-            """Register ``factor`` as a constraint unless it is the main term."""
-            if factor.GetName() in terms:
-                return
-            if factor.dependsOn(observables):
-                return
-            if factor.InheritsFrom("RooProdPdf"):
-                for nested in factor.pdfList():
-                    visit(nested, observables)
-                return
-            norm_set = ROOT.RooArgSet()
-            for server in factor.servers():
-                if server.GetName() in global_names:
-                    norm_set.add(server)
-            if norm_set.getSize() == 0:
-                for server in factor.servers():
-                    if server.InheritsFrom("RooRealVar") and not server.isConstant():
-                        norm_set.add(server)
-            if norm_set.getSize() == 0:
-                log.debug(
-                    "Ignoring pdf factor '%s': no observable to normalise over.",
-                    factor.GetName(),
-                )
-                return
-            manager.keep_alive(norm_set)
-            terms[factor.GetName()] = (factor, norm_set)
-
-        for channel in self.channels:
-            if not channel.pdf.InheritsFrom("RooProdPdf"):
-                continue
-            for factor in channel.pdf.pdfList():
-                visit(factor, channel.observable_set)
-        return list(terms.values())
 
     def _resolve_poi(self, poi_name: str | None) -> Any:
         """
@@ -971,46 +897,9 @@ class WorkspaceData:
     # Likelihood                                                          #
     # ------------------------------------------------------------------ #
 
-    def reference_logpdf(self, counts: Sequence[float]) -> float:
-        r"""
-        Evaluate :math:`\log\mathcal{L}` in ``spey``'s normalisation directly.
-
-        This is the expression ``spey`` and ``pyhf`` use,
-
-        .. math::
-
-            \log\mathcal{L}(\mu,\theta) =
-                \sum_i\left[n_i\log\lambda_i - \lambda_i - \log\Gamma(n_i+1)\right]
-                + \sum_c \log p_c(a_c\vert\theta)\ ,
-
-        evaluated from the expected yields and the constraint pdfs of the
-        workspace at the *current* parameter values. It is used to calibrate
-        the additive offset of the ``RooFit`` negative log-likelihood and, in
-        the test suite, as an independent cross-check of it.
-
-        Args:
-            counts (``Sequence[float]``): observed counts, one per bin.
-
-        Returns:
-            ``float``:
-            Log-likelihood of ``counts`` at the current parameter values.
-        """
-        values = np.asarray(counts, dtype=np.float64).ravel()
-        rates = np.clip(self.expected_yields(), 1e-20, None)
-        main = float(np.sum(values * np.log(rates) - rates - gammaln(values + 1.0)))
-        constraint = float(
-            np.sum(
-                [
-                    np.log(max(term.getVal(norm_set), 1e-300))
-                    for term, norm_set in self._constraint_terms
-                ]
-            )
-        )
-        return main + constraint
-
     def _make_nll(self, data: Sequence[float]) -> _NLLRecord:
         """
-        Build — and calibrate — the ``RooFit`` NLL for a given data vector.
+        Build the ``RooFit`` NLL for a given data vector.
 
         Args:
             data (``Sequence[float]``): full data vector, bins followed by
@@ -1018,8 +907,8 @@ class WorkspaceData:
 
         Returns:
             ``~spey_roofit.data._NLLRecord``:
-            The ``RooFit`` NLL together with the additive constant that maps it
-            onto ``spey``'s log-likelihood normalisation.
+            The ``RooFit`` NLL together with the dataset and auxiliary data it
+            was built for.
         """
         ROOT = manager.ROOT
 
@@ -1031,62 +920,26 @@ class WorkspaceData:
         for gob in self._global_observable_objects:
             global_set.add(gob)
 
+        # The bin-by-bin offset is applied inside RooFit, before the sum over
+        # bins, and depends only on the data. Unlike Offset("initial") it is
+        # neither hidden from getVal() nor tied to the first parameter point
+        # evaluated, and it removes the data-only constant that otherwise
+        # costs the NLL — and spey's finite-difference gradients — up to eight
+        # significant digits.
         nll = self.pdf.createNLL(
-            dataset, ROOT.RooFit.GlobalObservables(global_set), ROOT.RooFit.Offset(False)
+            dataset, ROOT.RooFit.GlobalObservables(global_set), ROOT.RooFit.Offset("bin")
         )
         # Constant-term optimisation caches sub-expressions that depend only on
         # parameters flagged constant. spey changes such parameters between
         # calls, therefore the optimisation is switched off for good.
         nll.constOptimizeTestStatistic(ROOT.RooAbsArg.DeActivate)
 
-        offsets = []
-        probes = [self._nominal_parameters, self._probe_parameters()]
-        for probe in probes:
-            self.set_parameters(probe)
-            offsets.append(nll.getVal() + self.reference_logpdf(counts))
-        self.set_parameters(self._nominal_parameters)
-
-        offset = float(offsets[0])
-        scale = max(abs(offset), 1.0)
-        residual = float(abs(offsets[0] - offsets[1]) / scale)
-        if not np.isfinite(residual) or residual > self._calibration_tolerance:
-            log.warning(
-                "The offset between the RooFit and the spey log-likelihood "
-                "normalisation is not constant (relative drift %.3e). Absolute "
-                "likelihood values may not follow spey's convention; likelihood "
-                "ratios are unaffected.",
-                residual,
-            )
         return _NLLRecord(
             nll=nll,
             dataset=dataset,
-            offset=offset,
             global_observables=auxiliary.copy(),
-            residual=residual,
             keep=[global_set],
         )
-
-    def _probe_parameters(self) -> np.ndarray:
-        r"""
-        Build a second parameter point used to validate the NLL calibration.
-
-        The point is obtained by nudging every parameter away from its nominal
-        value while staying inside its bounds.
-
-        Returns:
-            ``np.ndarray``:
-            Parameter vector different from :attr:`nominal_parameters`.
-        """
-        probe = self._nominal_parameters.copy()
-        for index, par in enumerate(self._parameter_objects):
-            low, high = par.getMin(), par.getMax()
-            span = high - low
-            shift = 0.05 * span if np.isfinite(span) and span > 0 else 0.1
-            candidate = probe[index] + shift
-            if candidate >= high:
-                candidate = probe[index] - shift
-            probe[index] = min(max(candidate, low), high)
-        return probe
 
     def _record(self, data: Sequence[float]) -> _NLLRecord:
         """
@@ -1122,7 +975,8 @@ class WorkspaceData:
         Returns:
             ``Callable[[np.ndarray], float]``:
             Function mapping :math:`(\mu,\theta)` onto
-            :math:`\log\mathcal{L}(\mu,\theta)`.
+            :math:`-\mathrm{NLL}(\mu,\theta)`, the negative of the value
+            ``RooFit`` reports for the bin-offset likelihood.
         """
         record = self._record(self.observed_data if data is None else data)
         flush = self._strict_cache_flush
@@ -1138,7 +992,7 @@ class WorkspaceData:
                 # RooFit flags parameter points with a vanishing or negative
                 # yield; they are outside the support of the likelihood.
                 return -np.inf
-            return record.offset - value
+            return -value
 
         return logpdf
 

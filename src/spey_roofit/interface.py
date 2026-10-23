@@ -33,7 +33,8 @@ References
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -66,9 +67,8 @@ class RooFitInterface(RooFitBackendBase):
     :class:`~spey_roofit.helper_functions.WorkspaceInterpreter`.
 
     Args:
-        workspace (``ROOT.RooWorkspace``, ``str`` or
-          ~spey_roofit.helper_functions.WorkspaceInterpreter): the model. A
-          ``str`` is interpreted as the path of a ``.root`` file.
+        workspace (``Union[RooWorkspace, str, WorkspaceInterpreter]``): the
+          model. A ``str`` is interpreted as the path of a ``.root`` file.
         signal_yields (``Dict[str, Sequence[float]]``, default ``None``):
           per-channel signal yields to inject, ``{channel: [y_1, ..., y_n]}``
           with one entry per bin of the channel. Use
@@ -119,12 +119,12 @@ class RooFitInterface(RooFitBackendBase):
 
     .. note::
 
-        ``RooFit`` and ``spey`` normalise the log-likelihood differently:
-        ``RooFit`` adds data dependent, parameter independent terms such as the
-        category normalisation of a ``RooSimultaneous``. The backend calibrates
-        that offset away once per dataset so that
-        :func:`~spey.StatisticalModel.likelihood` returns the same value as any
-        other ``spey`` backend for the same model.
+        The log-likelihood is ``RooFit``'s own, returned as :math:`-\mathrm{NLL}`
+        without any rescaling. ``RooFit`` adds data dependent, parameter
+        independent terms such as the category normalisation of a
+        ``RooSimultaneous``, so absolute values are not comparable with those of
+        another ``spey`` backend for the same model, whereas likelihood ratios,
+        fits and limits are unaffected.
     """
 
     name: str = "root.roofit"
@@ -135,19 +135,19 @@ class RooFitInterface(RooFitBackendBase):
     """Author of the backend"""
     spey_requires: str = ">=0.2.0"
     """Spey version required for the backend"""
-    arXiv: List[str] = ["physics/0306116", "1009.1003"]
+    arXiv: list[str] = ["physics/0306116", "1009.1003"]
     """arXiv references: the RooFit toolkit and the RooStats project"""
 
     __slots__ = ["_interpreter", "_signal_yields"]
 
     def __init__(
         self,
-        workspace: Union[Any, str, WorkspaceInterpreter],
-        signal_yields: Optional[Dict[str, Union[float, Sequence[float]]]] = None,
+        workspace: Any | str | WorkspaceInterpreter,
+        signal_yields: dict[str, float | Sequence[float]] | None = None,
         model_config_name: str = "ModelConfig",
-        data_name: Optional[str] = None,
-        workspace_name: Optional[str] = None,
-        poi_name: Optional[str] = None,
+        data_name: str | None = None,
+        workspace_name: str | None = None,
+        poi_name: str | None = None,
         strip_existing_signal: bool = False,
         strict_cache_flush: bool = True,
     ):
@@ -167,7 +167,7 @@ class RooFitInterface(RooFitBackendBase):
             interpreter.inject_signals(signal_yields)
 
         self._interpreter: WorkspaceInterpreter = interpreter
-        self._signal_yields: Dict[str, List[float]] = interpreter.signal_per_channel
+        self._signal_yields: dict[str, list[float]] = interpreter.signal_per_channel
 
         self._model = WorkspaceData(
             interpreter.patch,
@@ -176,8 +176,8 @@ class RooFitInterface(RooFitBackendBase):
             poi_name=poi_name,
             strict_cache_flush=strict_cache_flush,
         )
-        self._minimum_poi: Optional[float] = None
-        self._template: Optional[Tuple[np.ndarray, np.ndarray]] = None
+        self._minimum_poi: float | None = None
+        self._template: tuple[np.ndarray, np.ndarray] | None = None
 
     # ------------------------------------------------------------------ #
     # Accessors                                                           #

@@ -49,10 +49,9 @@ templates :math:`\omega` that ``combine`` builds.
 
     ``combine`` normally writes its Gaussian constraints as
     ``SimpleGaussianConstraint``, which drops the :math:`1/\sqrt{2\pi}` of
-    every term and so shifts :math:`\log\mathcal{L}` by a constant away from
-    the convention every other ``spey`` backend uses. The plug-in therefore
+    every term and so shifts :math:`\log\mathcal{L}` by a constant. The plug-in
     asks ``combine`` for plain ``RooGaussian`` terms — its ``--no-optimize-pdfs``
-    — which changes no likelihood ratio and makes absolute values comparable.
+    — which changes no likelihood ratio.
 
 References
 ~~~~~~~~~~
@@ -1231,8 +1230,8 @@ class DatacardInterpreter:
         for name in channels:
             entries: dict[str, list[float]] = {}
             for process in samples[name]:
-                if process == DEFAULT_SAMPLE_NAME:
-                    entries[process] = list(self._signal[name])
+                if process == DEFAULT_SAMPLE_NAME and name in self._signal:
+                    entries[process] = self._signal[name].tolist()
                 else:
                     entries[process] = self._template(name, process)
             if sample is not None:
@@ -1449,7 +1448,7 @@ class DatacardInterpreter:
             ``Dict[str, List[float]]``:
             Mapping from channel name to the injected per-bin yields.
         """
-        return {channel: list(values) for channel, values in self._signal.items()}
+        return {channel: values.tolist() for channel, values in self._signal.items()}
 
     # ------------------------------------------------------------------ #
     # Compilation                                                         #
@@ -1558,12 +1557,12 @@ class DatacardInterpreter:
             dtype=np.float64,
         )
         if process == DATA_NAME:
-            return list(values)
+            return values.tolist()
         total = float(np.sum(values))
         rate = float(self._card.exp[channel].get(process, 0.0))
         if total == 0.0:
-            return list(np.zeros(values.size))
-        return list(rate * values / total)
+            return [0.0] * values.size
+        return (rate * values / total).tolist()
 
     def _nbins(self, channel: str) -> int:
         """
@@ -1605,7 +1604,7 @@ class DatacardInterpreter:
             for name, values in samples.items():
                 if (name in selected[channel]) == signal:
                     total = total + np.asarray(values, dtype=np.float64)
-            out[channel] = list(total)
+            out[channel] = total.tolist()
         return out
 
     def _check_channel(self, channel: str) -> str:
