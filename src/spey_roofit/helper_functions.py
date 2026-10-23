@@ -28,7 +28,8 @@ leaves every other component of the workspace untouched.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
+from collections.abc import Iterable, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -56,14 +57,14 @@ _SAMPLE_DECORATIONS = (
     "_Exp",
     "_shapes",
 )
-"""Suffixes ``HistFactory`` appends to the sample functions of a channel."""
+# Suffixes ``HistFactory`` appends to the sample functions of a channel.
 
 _SIGNAL_REGION_HINTS = ("sr", "signal")
 _CONTROL_REGION_HINTS = ("cr", "control")
 _VALIDATION_REGION_HINTS = ("vr", "validation")
 
 
-def load_workspace(path: str, workspace_name: Optional[str] = None) -> Any:
+def load_workspace(path: str, workspace_name: str | None = None) -> Any:
     """
     Read a ``RooWorkspace`` from a ``ROOT`` file.
 
@@ -94,7 +95,7 @@ def load_workspace(path: str, workspace_name: Optional[str] = None) -> Any:
 
     handle = ROOT.TFile.Open(path)
     if not handle or handle.IsZombie():
-        raise IOError(f"Cannot open ROOT file '{path}'.")
+        raise OSError(f"Cannot open ROOT file '{path}'.")
     manager.keep_alive(handle)
 
     keys = [
@@ -199,10 +200,10 @@ class WorkspaceInterpreter:
 
     def __init__(
         self,
-        workspace: Union[Any, str],
+        workspace: Any | str,
         model_config_name: str = "ModelConfig",
-        data_name: Optional[str] = None,
-        workspace_name: Optional[str] = None,
+        data_name: str | None = None,
+        workspace_name: str | None = None,
     ):
         if isinstance(workspace, str):
             workspace = load_workspace(workspace, workspace_name)
@@ -224,9 +225,9 @@ class WorkspaceInterpreter:
         )
         self._data = self._find_data(data_name)
 
-        self._signal: Dict[str, np.ndarray] = {}
+        self._signal: dict[str, np.ndarray] = {}
         self._strip_signal: bool = False
-        self._poi_name: Optional[str] = None
+        self._poi_name: str | None = None
         self._patch_counter: int = 0
 
     def __repr__(self) -> str:
@@ -237,11 +238,11 @@ class WorkspaceInterpreter:
             f"injected={list(self._signal)})"
         )
 
-    def __getitem__(self, item: str) -> List[float]:
+    def __getitem__(self, item: str) -> list[float]:
         """Signal yields injected into channel ``item``."""
         return list(self._signal[item])
 
-    def _find_data(self, data_name: Optional[str]) -> Optional[Any]:
+    def _find_data(self, data_name: str | None) -> Any | None:
         """
         Resolve the observed dataset of the workspace.
 
@@ -279,7 +280,7 @@ class WorkspaceInterpreter:
         return self._workspace
 
     @property
-    def channels(self) -> List[str]:
+    def channels(self) -> list[str]:
         """
         Names of the channels, i.e. the analysis regions.
 
@@ -290,7 +291,7 @@ class WorkspaceInterpreter:
         return [channel.name for channel in self._channels]
 
     @property
-    def bin_map(self) -> Dict[str, int]:
+    def bin_map(self) -> dict[str, int]:
         """
         Number of bins of every channel.
 
@@ -302,7 +303,7 @@ class WorkspaceInterpreter:
         return {channel.name: channel.nbins for channel in self._channels}
 
     @property
-    def poi_names(self) -> List[str]:
+    def poi_names(self) -> list[str]:
         """
         Parameters of interest declared by the model configuration.
 
@@ -315,7 +316,7 @@ class WorkspaceInterpreter:
         return [poi.GetName() for poi in declared] if declared else []
 
     @property
-    def nuisance_parameters(self) -> List[str]:
+    def nuisance_parameters(self) -> list[str]:
         """
         Nuisance parameters declared by the model configuration.
 
@@ -327,7 +328,7 @@ class WorkspaceInterpreter:
         return sorted(par.GetName() for par in declared) if declared else []
 
     @property
-    def global_observables(self) -> List[str]:
+    def global_observables(self) -> list[str]:
         """
         Global observables, i.e. the auxiliary measurements, of the model.
 
@@ -339,7 +340,7 @@ class WorkspaceInterpreter:
         return sorted(gob.GetName() for gob in declared) if declared else []
 
     @property
-    def observed_data(self) -> Dict[str, List[float]]:
+    def observed_data(self) -> dict[str, list[float]]:
         """
         Observed counts of every channel.
 
@@ -353,7 +354,7 @@ class WorkspaceInterpreter:
         return self._unflatten(counts)
 
     @property
-    def samples(self) -> Dict[str, List[str]]:
+    def samples(self) -> dict[str, list[str]]:
         """
         Names of the samples contributing to every channel.
 
@@ -371,7 +372,7 @@ class WorkspaceInterpreter:
         }
 
     @staticmethod
-    def _is_signal(func: Any, coefficient: Any, pois: Optional[Any]) -> bool:
+    def _is_signal(func: Any, coefficient: Any, pois: Any | None) -> bool:
         """
         Decide whether a sample of a channel is scaled by a parameter of interest.
 
@@ -394,7 +395,7 @@ class WorkspaceInterpreter:
         return bool(func.dependsOn(pois) or coefficient.dependsOn(pois))
 
     @property
-    def signal_samples(self) -> Dict[str, List[str]]:
+    def signal_samples(self) -> dict[str, list[str]]:
         """
         Samples that are scaled by a parameter of interest.
 
@@ -404,7 +405,7 @@ class WorkspaceInterpreter:
             lists for a background-only workspace.
         """
         pois = self._poi_arg_set()
-        result: Dict[str, List[str]] = {}
+        result: dict[str, list[str]] = {}
         for channel in self._channels:
             names = []
             for func, coefficient in self._sample_terms(channel):
@@ -414,8 +415,8 @@ class WorkspaceInterpreter:
         return result
 
     def sample_yields(
-        self, channel: Optional[str] = None
-    ) -> Dict[str, Dict[str, List[float]]]:
+        self, channel: str | None = None
+    ) -> dict[str, dict[str, list[float]]]:
         """
         Expected yields of every sample, evaluated at the current parameters.
 
@@ -431,9 +432,9 @@ class WorkspaceInterpreter:
             Mapping ``channel -> sample -> per-bin yields``.
         """
         selection = self._select_channels(channel)
-        result: Dict[str, Dict[str, List[float]]] = {}
+        result: dict[str, dict[str, list[float]]] = {}
         for info in selection:
-            per_sample: Dict[str, List[float]] = {}
+            per_sample: dict[str, list[float]] = {}
             for func, coefficient in self._sample_terms(info):
                 name = self._sample_name(func.GetName(), info.name)
                 per_sample[name] = self._evaluate_sample(info, func, coefficient)
@@ -441,7 +442,7 @@ class WorkspaceInterpreter:
         return result
 
     @property
-    def expected_background_yields(self) -> Dict[str, List[float]]:
+    def expected_background_yields(self) -> dict[str, list[float]]:
         """
         Expected background, i.e. the sum of every non-signal sample.
 
@@ -451,7 +452,7 @@ class WorkspaceInterpreter:
             parameter values currently stored in the workspace.
         """
         pois = self._poi_arg_set()
-        result: Dict[str, List[float]] = {}
+        result: dict[str, list[float]] = {}
         for info in self._channels:
             total = np.zeros(info.nbins, dtype=np.float64)
             for func, coefficient in self._sample_terms(info):
@@ -462,7 +463,7 @@ class WorkspaceInterpreter:
         return result
 
     @property
-    def expected_signal_yields(self) -> Dict[str, List[float]]:
+    def expected_signal_yields(self) -> dict[str, list[float]]:
         r"""
         Expected signal already present in the workspace.
 
@@ -476,7 +477,7 @@ class WorkspaceInterpreter:
             background-only workspace.
         """
         pois = self._poi_arg_set()
-        result: Dict[str, List[float]] = {}
+        result: dict[str, list[float]] = {}
         for info in self._channels:
             total = np.zeros(info.nbins, dtype=np.float64)
             for func, coefficient in self._sample_terms(info):
@@ -510,7 +511,7 @@ class WorkspaceInterpreter:
                 return label
         return "__unknown__"
 
-    def guess_signal_regions(self) -> List[str]:
+    def guess_signal_regions(self) -> list[str]:
         """
         Channels whose name suggests they are signal regions.
 
@@ -520,7 +521,7 @@ class WorkspaceInterpreter:
         """
         return [name for name in self.channels if self.guess_channel_type(name) == "SR"]
 
-    def guess_control_regions(self) -> List[str]:
+    def guess_control_regions(self) -> list[str]:
         """
         Channels whose name suggests they are control or validation regions.
 
@@ -536,7 +537,7 @@ class WorkspaceInterpreter:
 
     def summary(
         self,
-        max_channels: Optional[int] = None,
+        max_channels: int | None = None,
         show_samples: bool = True,
         print_out: bool = True,
     ) -> str:
@@ -603,8 +604,8 @@ class WorkspaceInterpreter:
     # ------------------------------------------------------------------ #
 
     def inject_signal(
-        self, channel: str, yields: Union[float, Sequence[float]]
-    ) -> "WorkspaceInterpreter":
+        self, channel: str, yields: float | Sequence[float]
+    ) -> WorkspaceInterpreter:
         r"""
         Record signal yields to be added to a channel.
 
@@ -642,8 +643,8 @@ class WorkspaceInterpreter:
         return self
 
     def inject_signals(
-        self, signal_yields: Dict[str, Union[float, Sequence[float]]]
-    ) -> "WorkspaceInterpreter":
+        self, signal_yields: dict[str, float | Sequence[float]]
+    ) -> WorkspaceInterpreter:
         """
         Record signal yields for several channels at once.
 
@@ -662,7 +663,7 @@ class WorkspaceInterpreter:
             self.inject_signal(channel, yields)
         return self
 
-    def reset_signal(self) -> "WorkspaceInterpreter":
+    def reset_signal(self) -> WorkspaceInterpreter:
         """
         Forget every injected signal.
 
@@ -673,7 +674,7 @@ class WorkspaceInterpreter:
         self._signal.clear()
         return self
 
-    def strip_signal(self, strip: bool = True) -> "WorkspaceInterpreter":
+    def strip_signal(self, strip: bool = True) -> WorkspaceInterpreter:
         """
         Drop the signal samples already present in the workspace.
 
@@ -694,7 +695,7 @@ class WorkspaceInterpreter:
         return self
 
     @property
-    def signal_per_channel(self) -> Dict[str, List[float]]:
+    def signal_per_channel(self) -> dict[str, list[float]]:
         """
         Signal yields recorded so far.
 
@@ -759,6 +760,39 @@ class WorkspaceInterpreter:
             return self._workspace
         return self._build_patch()
 
+    def save_patch(self, path: str) -> str:
+        """
+        Write the patched workspace to a ``ROOT`` file.
+
+        Combined with :meth:`strip_signal`, this turns a signal-plus-background
+        workspace into a background-only one that can be shared and reused
+        like the files published on ``HEPData``; combined with
+        :meth:`inject_signal`, it stores a reinterpretation.
+
+        Args:
+            path (``str``): destination, e.g. ``"background_only.root"``. An
+              existing file is overwritten.
+
+        Raises:
+            ``IOError``: if the file cannot be written.
+
+        Returns:
+            ``str``:
+            ``path``, as given.
+
+        Example:
+
+        .. code-block:: python3
+
+            >>> interpreter = WorkspaceInterpreter("sPlusBFit_postFit.root")
+            >>> interpreter.strip_signal().save_patch("background_only.root")
+        """
+        workspace = self.patch
+        if workspace.writeToFile(str(path), True):  # returns True on error
+            raise OSError(f"Cannot write the workspace to '{path}'.")
+        log.info("Patched workspace saved to '%s'.", path)
+        return path
+
     # ------------------------------------------------------------------ #
     # Internals                                                           #
     # ------------------------------------------------------------------ #
@@ -783,7 +817,7 @@ class WorkspaceInterpreter:
             f"{self._workspace.GetName()}{suffix}",
             f"{self._workspace.GetTitle()} (spey patched)",
         )
-        keep: List[Any] = [poi]
+        keep: list[Any] = [poi]
 
         if self._index_category is not None:
             simultaneous = ROOT.RooSimultaneous(
@@ -811,7 +845,7 @@ class WorkspaceInterpreter:
         return target
 
     def _rebuild_channel(
-        self, info: ChannelInfo, poi: Any, pois: Any, suffix: str, keep: List[Any]
+        self, info: ChannelInfo, poi: Any, pois: Any, suffix: str, keep: list[Any]
     ) -> Any:
         """
         Rebuild the pdf of a single channel with the requested signal edits.
@@ -902,7 +936,7 @@ class WorkspaceInterpreter:
         keep += [new_components, product_pdf]
         return product_pdf
 
-    def _signal_shape(self, info: ChannelInfo, suffix: str, keep: List[Any]) -> Any:
+    def _signal_shape(self, info: ChannelInfo, suffix: str, keep: list[Any]) -> Any:
         """
         Build the ``RooHistFunc`` holding the signal yields of a channel.
 
@@ -1029,7 +1063,7 @@ class WorkspaceInterpreter:
         log.debug("Workspace declares no POI, creating '%s'.", name)
         return poi
 
-    def _poi_arg_set(self) -> Optional[Any]:
+    def _poi_arg_set(self) -> Any | None:
         """
         Parameters of interest as a ``RooArgSet``.
 
@@ -1044,7 +1078,7 @@ class WorkspaceInterpreter:
         return declared
 
     @staticmethod
-    def _product_components(pdf: Any) -> List[Any]:
+    def _product_components(pdf: Any) -> list[Any]:
         """
         Direct pdf components of a channel.
 
@@ -1059,7 +1093,7 @@ class WorkspaceInterpreter:
             return list(pdf.pdfList())
         return [pdf]
 
-    def _sample_terms(self, info: ChannelInfo) -> List[Any]:
+    def _sample_terms(self, info: ChannelInfo) -> list[Any]:
         """
         Sample functions and coefficients of a channel.
 
@@ -1092,7 +1126,7 @@ class WorkspaceInterpreter:
 
     def _evaluate_sample(
         self, info: ChannelInfo, func: Any, coefficient: Any
-    ) -> List[float]:
+    ) -> list[float]:
         """
         Evaluate one sample of a channel bin by bin.
 
@@ -1184,7 +1218,7 @@ class WorkspaceInterpreter:
             f"Available channels: {', '.join(self.channels)}."
         )
 
-    def _select_channels(self, channel: Optional[str]) -> List[ChannelInfo]:
+    def _select_channels(self, channel: str | None) -> list[ChannelInfo]:
         """
         Resolve a channel selection.
 
@@ -1199,7 +1233,7 @@ class WorkspaceInterpreter:
             return list(self._channels)
         return [self._channel(channel)]
 
-    def _unflatten(self, values: np.ndarray) -> Dict[str, List[float]]:
+    def _unflatten(self, values: np.ndarray) -> dict[str, list[float]]:
         """
         Split a flat per-bin vector into a per-channel dictionary.
 
@@ -1210,7 +1244,7 @@ class WorkspaceInterpreter:
             ``Dict[str, List[float]]``:
             Mapping from channel name to its bins.
         """
-        result: Dict[str, List[float]] = {}
+        result: dict[str, list[float]] = {}
         cursor = 0
         for info in self._channels:
             result[info.name] = values[cursor : cursor + info.nbins].tolist()

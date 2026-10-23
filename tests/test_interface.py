@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 import spey
 
+from conftest import assert_equal_up_to_constant, likelihood_profile
 from spey_roofit import RooFitInterface, WorkspaceInterpreter
 
 
@@ -93,27 +94,30 @@ def test_is_alive(uncorrelated, wrapper, background_only_workspace):
 
 
 def test_logpdf_matches_spey(uncorrelated):
-    """The log-likelihood is identical to the built-in ``spey`` backend."""
+    """The log-likelihood is the built-in ``spey`` backend's, up to a constant."""
     roofit, reference = uncorrelated
     ours = roofit.backend.get_logpdf_func()
     theirs = reference.backend.get_logpdf_func()
     rng = np.random.default_rng(2024)
-    for _ in range(10):
-        pars = np.concatenate([[rng.uniform(-2.0, 3.0)], rng.normal(0.0, 0.8, 3)])
-        assert ours(pars) == pytest.approx(theirs(pars), rel=1e-10, abs=1e-10)
+    points = [
+        np.concatenate([[rng.uniform(-2.0, 3.0)], rng.normal(0.0, 0.8, 3)])
+        for _ in range(10)
+    ]
+    assert_equal_up_to_constant(
+        [ours(pars) for pars in points], [theirs(pars) for pars in points], abs=1e-9
+    )
 
 
 def test_likelihood_and_maximum_likelihood_match_spey(uncorrelated):
-    """Observed likelihood and its maximum agree with the built-in backend."""
+    """Observed likelihood profile and its maximum agree with the built-in backend."""
     roofit, reference = uncorrelated
-    for poi_test in (0.0, 0.5, 1.0, 2.0):
-        assert roofit.likelihood(poi_test) == pytest.approx(
-            reference.likelihood(poi_test), rel=1e-6
-        )
-    ours = roofit.maximize_likelihood()
-    theirs = reference.maximize_likelihood()
-    assert ours[0] == pytest.approx(theirs[0], abs=1e-3)
-    assert ours[1] == pytest.approx(theirs[1], rel=1e-6)
+    pois = (0.0, 0.5, 1.0, 2.0)
+    assert likelihood_profile(roofit, pois) == pytest.approx(
+        likelihood_profile(reference, pois), abs=1e-6
+    )
+    assert roofit.maximize_likelihood()[0] == pytest.approx(
+        reference.maximize_likelihood()[0], abs=1e-3
+    )
 
 
 def test_expected_data_matches_spey(uncorrelated):
@@ -140,17 +144,16 @@ def test_expected_data_matches_spey(uncorrelated):
 
 def test_correlated_background_matches_spey(wrapper, correlated_workspace, toy_yields):
     r"""
-    The correlated-background twin agrees up to :math:`\tfrac12\log\det\rho`.
+    The correlated-background twin agrees up to a constant.
 
     The two models use different bases for the nuisance parameters, which
-    changes the log-likelihood by a constant Jacobian term but leaves every
-    likelihood ratio — and therefore every inference result — untouched.
+    changes the log-likelihood by the constant Jacobian term
+    :math:`\tfrac12\log\det\rho` but leaves every likelihood ratio — and
+    therefore every inference result — untouched.
     """
     covariance = np.asarray(toy_yields["covariance"], dtype=np.float64)
     factor = np.linalg.cholesky(covariance)
     scale = np.diag(np.sqrt(np.diag(covariance)))
-    correlation = np.linalg.inv(scale) @ covariance @ np.linalg.inv(scale)
-    constant = 0.5 * np.log(np.linalg.det(correlation))
 
     roofit = wrapper(workspace=correlated_workspace, analysis="roofit")
     reference = spey.get_backend("default.correlated_background")(
@@ -164,13 +167,17 @@ def test_correlated_background_matches_spey(wrapper, correlated_workspace, toy_y
     theirs = reference.backend.get_logpdf_func()
 
     rng = np.random.default_rng(7)
+    differences = []
     for _ in range(5):
         poi = rng.uniform(-1.0, 2.0)
         latent = rng.normal(0.0, 1.0, 3)
         theta = np.linalg.inv(scale) @ (factor @ latent)
-        assert ours(np.concatenate([[poi], latent])) - theirs(
-            np.concatenate([[poi], theta])
-        ) == pytest.approx(constant, abs=1e-8)
+        differences.append(
+            ours(np.concatenate([[poi], latent])) - theirs(np.concatenate([[poi], theta]))
+        )
+    # RooFit's bin-by-bin offset adds a data-only constant on top of the
+    # Jacobian term, so only the spread of the difference is checked.
+    assert np.ptp(differences) == pytest.approx(0.0, abs=1e-8)
 
     assert roofit.maximize_likelihood()[0] == pytest.approx(
         reference.maximize_likelihood()[0], abs=1e-3
@@ -227,9 +234,55 @@ def test_signal_injection_through_the_backend(
     ours = injected.backend.get_logpdf_func()
     theirs = roofit.backend.get_logpdf_func()
     rng = np.random.default_rng(99)
-    for _ in range(5):
-        pars = np.concatenate([[rng.uniform(-1.0, 2.0)], rng.normal(0.0, 0.5, 3)])
-        assert ours(pars) == pytest.approx(theirs(pars), rel=1e-10, abs=1e-10)
+    points = [
+        np.concatenate([[rng.uniform(-1.0, 2.0)], rng.normal(0.0, 0.5, 3)])
+        for _ in range(5)
+    ]
+    assert_equal_up_to_constant([ours(p) for p in points], [theirs(p) for p in points])
+
+
+def test_a_stripped_workspace_is_saved_and_reused(
+    wrapper, uncorrelated_workspace, toy_yields, uncorrelated, tmp_path
+):
+    """Signal-plus-background becomes a background-only file that takes a new signal."""
+    roofit, _ = uncorrelated
+    path = str(tmp_path / "background_only.root")
+
+    interpreter = WorkspaceInterpreter(uncorrelated_workspace)
+    assert interpreter.is_alive
+    assert interpreter.strip_signal().save_patch(path) == path
+
+    saved = WorkspaceInterpreter(path)
+    assert not saved.is_alive
+    assert saved.poi_names == []
+    assert saved.expected_background_yields["ch"] == pytest.approx(
+        toy_yields["background"], rel=1e-12
+    )
+
+    reinjected = wrapper(
+        workspace=saved, signal_yields={"ch": toy_yields["signal"]}, analysis="saved"
+    )
+    ours = reinjected.backend.get_logpdf_func()
+    theirs = roofit.backend.get_logpdf_func()
+    rng = np.random.default_rng(7)
+    points = [
+        np.concatenate([[rng.uniform(-1.0, 2.0)], rng.normal(0.0, 0.5, 3)])
+        for _ in range(5)
+    ]
+    assert_equal_up_to_constant([ours(p) for p in points], [theirs(p) for p in points])
+
+
+def test_a_patched_workspace_is_saved_with_its_signal(
+    background_only_workspace, toy_yields, tmp_path
+):
+    """A reinterpretation is stored as it is and read back by the interpreter."""
+    path = str(tmp_path / "reinterpretation.root")
+    interpreter = WorkspaceInterpreter(background_only_workspace)
+    interpreter.inject_signal("ch", toy_yields["signal"]).save_patch(path)
+
+    saved = WorkspaceInterpreter(path)
+    assert saved.is_alive
+    assert saved.expected_signal_yields["ch"] == pytest.approx(toy_yields["signal"])
 
 
 def test_agrees_with_spey_pyhf(uncorrelated, toy_yields, pyhf_backend):
@@ -272,10 +325,11 @@ def test_agrees_with_spey_pyhf(uncorrelated, toy_yields, pyhf_backend):
     reference = theirs.backend.get_logpdf_func()
 
     rng = np.random.default_rng(5)
+    values = []
     for _ in range(8):
         pars = np.concatenate([[rng.uniform(-1.0, 2.0)], rng.normal(0.0, 0.6, 3)])
         translated = translate_parameters(pars, renamed, their_names)
-        assert ours(pars) == pytest.approx(reference(translated), rel=1e-10, abs=1e-10)
+        values.append((ours(pars), reference(translated)))
 
         # Both halves of the Asimov dataset, bin counts and auxiliary
         # measurements; in this model both backends order them the same way.
@@ -283,6 +337,7 @@ def test_agrees_with_spey_pyhf(uncorrelated, toy_yields, pyhf_backend):
             theirs.backend.expected_data(list(translated)), rel=1e-10, abs=1e-12
         )
 
+    assert_equal_up_to_constant(*zip(*values), abs=1e-9)
     assert roofit.exclusion_confidence_level() == pytest.approx(
         theirs.exclusion_confidence_level(), rel=1e-4
     )

@@ -180,12 +180,33 @@ The card is *rewritten* — one extra column per channel, the signal columns
 removed — and handed back to `combine`, so the reinterpreted model is built by
 exactly the same code as the published one.
 
+### Remove the signal and save the result
+
+Every interpreter can turn a signal-plus-background likelihood into a background-only
+one and write it to disk, so that it can be shared and reused like the files published
+on HEPData:
+
+```python
+WorkspaceInterpreter("atlas-exot-2018-06/sPlusBFit_postFit.root").strip_signal().save_patch("background_only.root")
+DatacardInterpreter("card.txt").strip_signal().save_patch("background_only.txt")
+```
+
+`save_patch` works the same way after `inject_signal`, which stores a reinterpretation.
+The HS3 interpreter of `spey-hs3` has the same two methods and writes a `JSON` document.
+
+## Documentation
+
+The [documentation](docs/) is built with Sphinx (`pip install -r docs/requirements.txt`,
+then `make html` in `docs/`). It has one page per workspace format — `RooFit`, HS3 and
+CMS Combine — each with the same four steps: inspect the likelihood, remove its signal
+and save it, add your own signal, and compute exclusion limits and upper limits.
+
 ## How it works
 
 | module                         | contents                                                                                                                                         |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `spey_roofit.manager`          | lazy `PyROOT` import, batch mode, `RooMsgService` silencing, keep-alive registry                                                                 |
-| `spey_roofit.data`             | `WorkspaceData`: flat, array-based view of a `RooFit` model — channels, bins, parameters, constraints, Asimov data and the calibrated likelihood |
+| `spey_roofit.data`             | `WorkspaceData`: flat, array-based view of a `RooFit` model — channels, bins, parameters, constraints, Asimov data and the `RooFit` likelihood                                     |
 | `spey_roofit.helper_functions` | `WorkspaceInterpreter`: inspection and signal injection for `RooFit` workspaces                                                                  |
 | `spey_roofit.base`             | `RooFitBackendBase`: the parts of the `spey` contract that do not depend on where the model came from                                            |
 | `spey_roofit.interface`        | `RooFitInterface`, the `root.roofit` backend                                                                                                     |
@@ -233,10 +254,8 @@ Four things are arranged around it, none of which touches the likelihood
 `combine` builds:
 
 * **plain Gaussian constraints.** `combine` writes them as
-  `SimpleGaussianConstraint`, which drops the `1/sqrt(2 pi)` of every term and
-  would put `log L` in a different normalisation from every other `spey`
-  backend. The plug-in asks for `--no-optimize-pdfs`; no likelihood ratio
-  changes either way.
+  `SimpleGaussianConstraint`, which drops the `1/sqrt(2 pi)` of every term. The
+  plug-in asks for `--no-optimize-pdfs`; no likelihood ratio changes either way.
 * **room around the auxiliary measurements.** `spey` normalises a constraint
   over its auxiliary measurement, and `combine` gives a `shape` parameter the
   range `[-4, 4]`, which at `theta = -1.5` already cuts six parts in a thousand
@@ -268,19 +287,17 @@ Asimov datasets therefore carry the profiled auxiliary data, exactly as
 
 ### Likelihood normalisation
 
-`RooFit` and `spey` do not use the same additive normalisation for the
-log-likelihood: `RooFit` includes data-dependent but parameter-independent
-terms such as the category normalisation of a `RooSimultaneous`. The plug-in
-calibrates that offset away once per dataset against
-
-```
-log L = sum_i [ n_i log(lambda_i) - lambda_i - log Gamma(n_i + 1) ]
-      + sum_c log p_c(a_c | theta)
-```
-
-which is the convention `spey` and `pyhf` use. The calibration is validated at
-two independent parameter points and a warning is issued if the offset turns
-out not to be constant.
+The plug-in returns `RooFit`'s own likelihood, `-RooAbsPdf::createNLL`, with no
+rescaling and no assumption about the form of the model. `RooFit`'s NLL carries
+additive terms that depend on the data but not on the parameters: the category
+normalisation of a `RooSimultaneous` (`N_obs log N_channels`), the bin volumes,
+and the `log Gamma(n + 1)` an extended likelihood omits. They can be large, of
+order `1e7` on a workspace with millions of events, so **the absolute value of
+`likelihood()` is not comparable with that of another `spey` backend** for the
+same model. Every likelihood ratio is: fits, profiles, test statistics, `CLs`
+and limits do not depend on the constant. Comparisons with other backends should
+therefore be made between likelihoods at different parameter points, not between
+absolute values.
 
 ### Parameter caching
 

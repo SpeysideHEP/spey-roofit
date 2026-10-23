@@ -1465,6 +1465,61 @@ class DatacardInterpreter:
         """
         return self.workspace()[0]
 
+    def save_patch(self, path: str | os.PathLike) -> str:
+        """
+        Write the patched datacard to a file.
+
+        Combined with :meth:`strip_signal`, this turns a card that declares a
+        signal into a background-only one; combined with :meth:`inject_signal`,
+        it stores a reinterpretation. The card is the one ``combine`` is given:
+        the ``shapes`` directives of the original point at absolute paths, so
+        the saved card keeps working wherever it is moved to, and the
+        templates of an injected signal are copied next to it.
+
+        Args:
+            path (``Union[str, os.PathLike]``): destination of the card, e.g.
+              ``"background_only.txt"``. An existing file is overwritten.
+
+        Returns:
+            ``str``:
+            The path the card was written to.
+
+        Example:
+
+        .. code-block:: python3
+
+            >>> interpreter = DatacardInterpreter("chi_datacard.txt")
+            >>> interpreter.strip_signal().save_patch("background_only.txt")
+        """
+        path = os.path.abspath(str(path))
+        text, base = patch_datacard(
+            self._text,
+            injections=self._signal,
+            strip_signal=self._strip,
+            directory=self._directory,
+        )
+        target = os.path.dirname(path)
+        os.makedirs(target, exist_ok=True)
+
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            tokens = line.split()
+            if tokens[:1] != ["shapes"] or len(tokens) < 5:
+                continue
+            # only the templates of an injected signal live in the work directory
+            if base == self._directory or os.path.dirname(tokens[3]) != base:
+                continue
+            destination = os.path.join(target, os.path.basename(tokens[3]))
+            if os.path.abspath(tokens[3]) != destination:
+                shutil.copyfile(tokens[3], destination)
+            tokens[3] = os.path.basename(tokens[3])
+            lines[index] = " ".join(tokens)
+
+        with open(path, "w", encoding="utf-8") as stream:
+            stream.write("\n".join(lines) + "\n")
+        log.info("Patched datacard saved to '%s'.", path)
+        return path
+
     def workspace(self, **kwargs: Any) -> tuple[Any, Any]:
         """
         Compile the model into a ``RooFit`` workspace, with ``combine``.

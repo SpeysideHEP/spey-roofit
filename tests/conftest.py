@@ -362,6 +362,48 @@ def roofit_to_pyhf_name(name: str) -> str:
     return name
 
 
+def assert_equal_up_to_constant(
+    ours, theirs, abs=1e-9
+):  # pylint: disable=redefined-builtin
+    """
+    Assert that two sets of log-likelihood values differ by one constant.
+
+    ``RooFit``'s negative log-likelihood carries additive terms that depend on
+    the data and on how the workspace is assembled but not on the parameters, so
+    the absolute value of a ``spey-roofit`` likelihood is not comparable with
+    that of another implementation. Only differences between parameter points
+    are, and those are what every inference result is built from.
+
+    Args:
+        ours (``Sequence[float]``): values from this plug-in.
+        theirs (``Sequence[float]``): values of the other implementation at the
+          same parameter points, in the same order.
+        abs (``float``, default ``1e-9``): largest spread of the difference.
+    """
+    shift = np.asarray(ours, dtype=float) - np.asarray(theirs, dtype=float)
+    assert np.ptp(shift) == pytest.approx(0.0, abs=abs)
+
+
+def likelihood_profile(model, pois):
+    r"""
+    The profile :math:`-\log\mathcal{L}(\mu)+\log\mathcal{L}(\hat\mu)`.
+
+    The subtraction of the global minimum removes the additive constant of the
+    likelihood, which is what makes the profiles of two implementations
+    comparable.
+
+    Args:
+        model (``~spey.StatisticalModel``): the model.
+        pois (``Sequence[float]``): values of the parameter of interest.
+
+    Returns:
+        ``np.ndarray``:
+        The profile at every value of ``pois``.
+    """
+    minimum = model.maximize_likelihood()[1]
+    return np.array([model.likelihood(poi_test=poi) for poi in pois]) - minimum
+
+
 # --------------------------------------------------------------------------- #
 # CMS Combine                                                                  #
 # --------------------------------------------------------------------------- #

@@ -99,26 +99,6 @@ def test_dataset_round_trip(model):
         model.make_dataset([1.0])
 
 
-def test_roofit_and_reference_likelihood_agree(model):
-    """
-    The ``RooFit`` NLL and the closed-form expression differ by a constant.
-
-    This is the assumption the calibration of the likelihood normalisation
-    rests on, so it is checked explicitly over a scan of parameter points.
-    """
-    # pylint: disable=protected-access
-    record = model._record(model.observed_data)
-    counts = model.observed_counts
-    offsets = []
-    rng = np.random.default_rng(1234)
-    for _ in range(10):
-        pars = np.concatenate([[rng.uniform(-1.0, 2.0)], rng.normal(0.0, 0.5, 3)])
-        model.set_parameters(pars)
-        offsets.append(record.nll.getVal() + model.reference_logpdf(counts))
-    model.reset_parameters()
-    assert np.std(offsets) == pytest.approx(0.0, abs=1e-9)
-
-
 def test_logpdf_is_insensitive_to_evaluation_order(model):
     """
     Re-evaluating an old parameter point gives the old answer back.

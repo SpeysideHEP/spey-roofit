@@ -29,6 +29,7 @@ import numpy as np
 import pytest
 import spey
 
+from conftest import assert_equal_up_to_constant, likelihood_profile
 from spey_roofit import HS3Interface, load_document, repair_document
 from spey_roofit.hs3 import (
     compile_workspace,
@@ -291,9 +292,11 @@ def test_logpdf_matches_spey(uncorrelated):
     mine, reference = ours.backend.get_logpdf_func(), theirs.backend.get_logpdf_func()
 
     rng = np.random.default_rng(7)
-    for _ in range(10):
-        pars = np.concatenate([[rng.uniform(-1.0, 3.0)], rng.normal(0.0, 1.2, 3)])
-        assert mine(pars) == pytest.approx(reference(pars), rel=1e-10, abs=1e-10)
+    points = [
+        np.concatenate([[rng.uniform(-1.0, 3.0)], rng.normal(0.0, 1.2, 3)])
+        for _ in range(10)
+    ]
+    assert_equal_up_to_constant([mine(p) for p in points], [reference(p) for p in points])
 
 
 def test_maximum_likelihood_matches_spey(uncorrelated):
@@ -301,7 +304,10 @@ def test_maximum_likelihood_matches_spey(uncorrelated):
     ours, theirs = uncorrelated
     mine, reference = ours.maximize_likelihood(), theirs.maximize_likelihood()
     assert mine[0] == pytest.approx(reference[0], abs=1e-3)
-    assert mine[1] == pytest.approx(reference[1], rel=1e-6)
+    pois = (0.0, 0.5, 1.0, 2.0)
+    assert likelihood_profile(ours, pois) == pytest.approx(
+        likelihood_profile(theirs, pois), abs=1e-6
+    )
 
 
 def test_chi2_matches_spey(uncorrelated):
@@ -358,10 +364,10 @@ def test_poisson_document_matches_spey(wrapper, poisson_hs3, toy_yields):
     )
     assert ours.backend.model.naux == 0
     assert ours.backend.model.npar == 1
-    for poi_test in (0.0, 0.5, 1.0, 2.0):
-        assert ours.likelihood(poi_test) == pytest.approx(
-            theirs.likelihood(poi_test), rel=1e-10, abs=1e-10
-        )
+    pois = (0.0, 0.5, 1.0, 2.0)
+    assert likelihood_profile(ours, pois) == pytest.approx(
+        likelihood_profile(theirs, pois), abs=1e-9
+    )
     assert ours.exclusion_confidence_level() == pytest.approx(
         theirs.exclusion_confidence_level(), rel=1e-6
     )
@@ -369,17 +375,16 @@ def test_poisson_document_matches_spey(wrapper, poisson_hs3, toy_yields):
 
 def test_correlated_document_matches_spey(wrapper, correlated_hs3, toy_yields):
     r"""
-    The correlated twin agrees up to :math:`\tfrac12\log\det\rho`.
+    The correlated twin agrees up to a constant.
 
     The two models use different bases for the nuisance parameters, which
-    changes the log-likelihood by a constant Jacobian term but leaves every
-    likelihood ratio — and therefore every inference result — untouched.
+    changes the log-likelihood by a constant Jacobian term, :math:`\tfrac12\log
+    \det\rho`, but leaves every likelihood ratio — and therefore every inference
+    result — untouched. ``RooFit``'s own additive terms are constant as well.
     """
     covariance = np.asarray(toy_yields["covariance"], dtype=np.float64)
     factor = np.linalg.cholesky(covariance)
     scale = np.diag(np.sqrt(np.diag(covariance)))
-    correlation = np.linalg.inv(scale) @ covariance @ np.linalg.inv(scale)
-    constant = 0.5 * np.log(np.linalg.det(correlation))
 
     ours = wrapper(workspace=correlated_hs3, analysis="hs3")
     theirs = spey.get_backend("default.correlated_background")(
@@ -392,13 +397,14 @@ def test_correlated_document_matches_spey(wrapper, correlated_hs3, toy_yields):
     mine, reference = ours.backend.get_logpdf_func(), theirs.backend.get_logpdf_func()
 
     rng = np.random.default_rng(7)
+    values, expected = [], []
     for _ in range(5):
         poi = rng.uniform(-1.0, 2.0)
         latent = rng.normal(0.0, 1.0, 3)
         theta = np.linalg.inv(scale) @ (factor @ latent)
-        assert mine(np.concatenate([[poi], latent])) - reference(
-            np.concatenate([[poi], theta])
-        ) == pytest.approx(constant, abs=1e-8)
+        values.append(mine(np.concatenate([[poi], latent])))
+        expected.append(reference(np.concatenate([[poi], theta])))
+    assert_equal_up_to_constant(values, expected, abs=1e-8)
 
     assert ours.maximize_likelihood()[0] == pytest.approx(
         theirs.maximize_likelihood()[0], abs=1e-3
@@ -499,6 +505,54 @@ def test_strip_existing_signal_allows_reinterpretation(
     background, signal = model.backend._background_and_signal()
     assert signal == pytest.approx(replacement, rel=1e-8)
     assert background == pytest.approx(toy_yields["background"], rel=1e-8)
+
+
+def test_stripping_the_signal_of_a_document_without_constraint_keys(
+    wrapper, uncorrelated_hs3
+):
+    """
+    Parameters that only the signal uses are not pruned from under their constraint.
+
+    A constraint without its ``x`` key, as ``ROOT`` 6.36 writes them, does not
+    refer to its parameter as far as the interpreter can tell. Stripping the
+    signal would then prune the parameter and leave the constraint pointing at
+    nothing, so the document has to be repaired before the interpreter sees it.
+    """
+    document = copy.deepcopy(uncorrelated_hs3)
+    document["distributions"][0]["samples"][1]["modifiers"].append(
+        {
+            "type": "normsys",
+            "name": "alpha_sig",
+            "parameter": "alpha_sig",
+            "constraint": "Gauss",
+            "data": {"hi": 1.1, "lo": 0.9},
+        }
+    )
+    document["distributions"].append(
+        {
+            "type": "gaussian_dist",
+            "name": "alpha_sigConstraint",
+            "mean": "nom_alpha_sig",
+            "sigma": 1.0,
+        }
+    )
+    document["parameter_points"][0]["parameters"] += [
+        {"name": "alpha_sig", "value": 0.0},
+        {"name": "nom_alpha_sig", "value": 0.0},
+    ]
+    document["domains"][0]["axes"] += [
+        {"name": "alpha_sig", "min": -5.0, "max": 5.0},
+        {"name": "nom_alpha_sig", "min": -5.0, "max": 5.0},
+    ]
+
+    model = wrapper(
+        workspace=document,
+        signal_yields={"model_ch": [1.0, 2.0, 3.0]},
+        strip_existing_signal=True,
+        analysis="no-constraint-keys",
+    )
+    assert model.backend.document["distributions"][-1]["x"] == "alpha_sig"
+    assert model.backend.is_alive
 
 
 def test_signal_yields_with_a_wrong_bin_count_is_rejected(wrapper, background_only_hs3):

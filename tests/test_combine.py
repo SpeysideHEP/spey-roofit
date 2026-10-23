@@ -7,6 +7,7 @@ import pytest
 import spey
 
 from combine_models import uncorrelated_background_datacard, write_templates
+from conftest import assert_equal_up_to_constant, likelihood_profile
 from spey_roofit import DatacardInterpreter, patch_datacard
 from spey_roofit.combine import (
     SWAPPED_TWO_HYPOTHESIS_MODEL,
@@ -251,10 +252,10 @@ def test_matches_spey_poisson(poisson_datacard, toy_yields):
         data=toy_yields["data"],
         analysis="spey",
     )
-    for poi in (0.0, 0.5, 1.0, 2.0):
-        assert ours.likelihood(poi_test=poi) == pytest.approx(
-            theirs.likelihood(poi_test=poi), rel=1e-10
-        )
+    pois = (0.0, 0.5, 1.0, 2.0)
+    assert likelihood_profile(ours, pois) == pytest.approx(
+        likelihood_profile(theirs, pois), abs=1e-9
+    )
     assert ours.maximize_likelihood()[0] == pytest.approx(
         theirs.maximize_likelihood()[0], abs=1e-5
     )
@@ -280,10 +281,10 @@ def test_matches_spey_uncorrelated_background(uncorrelated_datacard, toy_yields)
         absolute_uncertainties=toy_yields["uncertainty"],
         analysis="spey",
     )
-    for poi in (0.0, 0.5, 1.0, 2.0):
-        assert ours.likelihood(poi_test=poi) == pytest.approx(
-            theirs.likelihood(poi_test=poi), abs=1e-5
-        )
+    pois = (0.0, 0.5, 1.0, 2.0)
+    assert likelihood_profile(ours, pois) == pytest.approx(
+        likelihood_profile(theirs, pois), abs=1e-5
+    )
     assert ours.maximize_likelihood()[0] == pytest.approx(
         theirs.maximize_likelihood()[0], abs=1e-4
     )
@@ -320,6 +321,7 @@ def test_matches_the_roofit_backend(shape_datacard, tmp_path):
     assert ours.backend.model.npar == theirs.backend.model.npar
     ours_logpdf = ours.backend.get_logpdf_func()
     theirs_logpdf = theirs.backend.get_logpdf_func()
+    mine, reference = [], []
     for poi in (0.0, 1.0, 2.0):
         for theta in (-1.5, -0.4, 0.0, 0.8):
             point = np.array([poi, theta, -0.5 * theta])
@@ -328,7 +330,9 @@ def test_matches_the_roofit_backend(shape_datacard, tmp_path):
             assert ours.backend.model.expected_yields() == pytest.approx(
                 theirs.backend.model.expected_yields(), rel=1e-12
             )
-            assert ours_logpdf(point) == pytest.approx(theirs_logpdf(point), abs=1e-9)
+            mine.append(ours_logpdf(point))
+            reference.append(theirs_logpdf(point))
+    assert_equal_up_to_constant(mine, reference)
 
 
 def test_matches_spey_pyhf(
@@ -393,10 +397,10 @@ def test_matches_spey_pyhf(
         background_only_model=workspace, signal_patch=patch, analysis="pyhf"
     )
     assert theirs.backend.is_alive
-    for poi in (0.0, 0.5, 1.0, 2.0):
-        assert ours.likelihood(poi_test=poi) == pytest.approx(
-            theirs.likelihood(poi_test=poi), abs=1e-5
-        )
+    pois = (0.0, 0.5, 1.0, 2.0)
+    assert likelihood_profile(ours, pois) == pytest.approx(
+        likelihood_profile(theirs, pois), abs=1e-5
+    )
     assert ours.poi_upper_limit() == pytest.approx(theirs.poi_upper_limit(), rel=1e-5)
 
 
@@ -492,6 +496,47 @@ def test_stripping_the_signal_leaves_the_background(uncorrelated_datacard, toy_y
     background, signal = reinterpreted.backend._background_and_signal()
     assert background == pytest.approx(toy_yields["background"], rel=1e-12)
     assert signal == pytest.approx(other, rel=1e-12)
+
+
+def test_a_stripped_card_is_saved_and_reused(uncorrelated_datacard, toy_yields, tmp_path):
+    """A published card is reduced to its background, written and read back."""
+    path = str(tmp_path / "background_only.txt")
+    interpreter = DatacardInterpreter(uncorrelated_datacard)
+    assert interpreter.is_alive
+    assert interpreter.strip_signal().save_patch(path) == path
+
+    saved = DatacardInterpreter(path)
+    assert saved.signal_processes == []
+    assert not saved.is_alive
+    assert saved.expected_background_yields["ch1"] == pytest.approx(
+        toy_yields["background"], rel=1e-12
+    )
+
+    model = spey.get_backend("root.cms-combine")(
+        datacard=path, signal_yields={"ch1": toy_yields["signal"]}, analysis="saved"
+    )
+    declared = spey.get_backend("root.cms-combine")(
+        datacard=uncorrelated_datacard, analysis="declared"
+    )
+    for poi in (0.0, 1.0):
+        assert model.likelihood(poi_test=poi) == pytest.approx(
+            declared.likelihood(poi_test=poi), abs=1e-6
+        )
+
+
+def test_a_reinterpretation_is_saved_with_its_templates(uncorrelated_datacard, tmp_path):
+    """The templates of an injected signal travel with the saved card."""
+    other = [3.0, 4.0, 1.0]
+    target = tmp_path / "elsewhere"
+    path = str(target / "reinterpretation.txt")
+
+    interpreter = DatacardInterpreter(uncorrelated_datacard)
+    interpreter.strip_signal().inject_signal("ch1", other).save_patch(path)
+
+    assert (target / "spey_signal.root").is_file()
+    saved = DatacardInterpreter(path)
+    assert saved.signal_processes == ["spey_signal"]
+    assert saved.expected_signal_yields["ch1"] == pytest.approx(other)
 
 
 def test_the_two_hypothesis_models_are_mirror_images(tmp_path):
