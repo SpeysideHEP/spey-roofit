@@ -52,6 +52,7 @@ yields to it. The likelihood is never reimplemented; ``ROOT`` evaluates the ``Ro
    roofit
    hs3
    cms_combine
+   validation
    api
    citations
 

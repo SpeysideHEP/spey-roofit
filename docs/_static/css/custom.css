@@ -55,3 +55,14 @@ span#release {
     margin-right: 50px;
     line-height: 22px;
 }
+
+/** validation figures: two plots side by side, no table borders **/
+table.figure-row,
+table.figure-row td,
+table.figure-row th {
+    border: none;
+}
+
+table.figure-row img {
+    width: 100%;
+}
