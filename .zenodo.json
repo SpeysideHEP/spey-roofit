@@ -16,7 +16,10 @@
         "physics",
         "statistics",
         "roofit",
-        "inference"
+        "inference",
+        "roostats",
+        "HS3",
+        "CMS-Combine"
     ],
     "related_identifiers": [
         {
