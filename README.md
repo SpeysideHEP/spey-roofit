@@ -2,6 +2,10 @@
 
 [![arxiv](https://img.shields.io/static/v1?style=plastic&label=arXiv&message=2307.06996&color=brightgreen)](https://arxiv.org/abs/2307.06996)
 [![DOI](https://img.shields.io/static/v1?style=plastic&label=DOI&message=10.21468/SciPostPhys.16.1.032&color=blue)](https://scipost.org/10.21468/SciPostPhys.16.1.032)
+[![DOI](https://zenodo.org/badge/1252305204.svg)](https://doi.org/10.5281/zenodo.23639559)
+
+![PyPI Version](https://img.shields.io/pypi/v/spey-roofit?style=plastic&logo=python)
+[![codecov](https://codecov.io/gh/SpeysideHEP/spey-roofit/graph/badge.svg?token=cgUJcrObPI)](https://codecov.io/gh/SpeysideHEP/spey-roofit)
 
 <img src="https://raw.githubusercontent.com/SpeysideHEP/spey/main/docs/img/spey-plug-in.png" alt="Spey logo" style="float: right; margin-right: 20px" align="right" width=250px/>
 
