@@ -102,6 +102,12 @@ html_theme_options = {
             "icon": "https://img.shields.io/static/v1?style=plastic&label=arXiv&message=2307.06996&color=brightgreen",
             "type": "url",
         },
+        {
+            "name": "PyPI",
+            "url": "https://pypi.org/project/spey-roofit/",
+            "icon": "https://img.shields.io/pypi/v/spey-roofit?style=plastic",
+            "type": "url",
+        },
     ],
 }
 
